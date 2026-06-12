@@ -1,0 +1,135 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+interface VoiceButtonProps {
+  onTranscript: (text: string) => void;
+  disabled?: boolean;
+}
+
+export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
+  const [supported, setSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [processing, setProcessing] = useState(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const onTranscriptRef = useRef(onTranscript);
+  useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
+
+  useEffect(() => {
+    setSupported(
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices?.getUserMedia
+    );
+  }, []);
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "audio/mp4";
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        chunksRef.current = [];
+
+        if (blob.size < 500) { setProcessing(false); return; }
+
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, `rec.${mimeType.includes("mp4") ? "mp4" : "webm"}`);
+          const res = await fetch("/api/stt", { method: "POST", body: fd });
+          if (!res.ok) { console.error("STT failed:", res.status); return; }
+          const { text } = await res.json() as { text: string };
+          if (text?.trim()) onTranscriptRef.current(text.trim());
+        } catch (err) {
+          console.error("STT error:", err);
+        } finally {
+          setProcessing(false);
+        }
+      };
+
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setListening(true);
+    } catch (err) {
+      console.error("Mic access error:", err);
+      setListening(false);
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current?.state === "recording") {
+      setListening(false);
+      setProcessing(true);
+      mediaRecorderRef.current.stop();
+    }
+  }
+
+  function toggle() {
+    if (listening) stopRecording();
+    else void startRecording();
+  }
+
+  if (!supported) return null;
+
+  const isDisabled = disabled || processing;
+  const label = processing ? "Transcribing…" : listening ? "Stop recording" : "Speak your message";
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={isDisabled}
+      aria-label={label}
+      title={label}
+      className={[
+        "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
+        "transition-colors transition-transform duration-150",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
+        listening
+          ? "bg-red-500 text-white shadow-lg shadow-red-200 scale-110 animate-pulse"
+          : processing
+          ? "bg-indigo-100 text-indigo-400"
+          : "bg-gray-100 text-gray-500 hover:bg-indigo-100 hover:text-indigo-600",
+      ].join(" ")}
+      style={{ touchAction: "manipulation" }}
+    >
+      {processing ? (
+        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      ) : listening ? (
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          <line x1="12" y1="19" x2="12" y2="23" />
+          <line x1="8" y1="23" x2="16" y2="23" />
+        </svg>
+      )}
+    </button>
+  );
+}

@@ -24,7 +24,7 @@ export default function LandingPage() {
               Dashboard
             </Link>
             <Link
-              href="/create"
+              href="/chat"
               className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm"
             >
               Create page →
@@ -63,29 +63,29 @@ export default function LandingPage() {
           </h1>
 
           <p className="text-xl text-white/70 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Paste your website URL. AI reads your brand, writes your copy,
-            and builds a beautiful landing page + Razorpay checkout in under 2 minutes.
+            No website? No problem. Just tell us what you sell — by typing or speaking —
+            and we'll build a beautiful Razorpay checkout page in under 2 minutes.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              href="/create"
+              href="/chat"
               className="inline-flex items-center gap-2 px-8 py-4 bg-white text-indigo-900 rounded-2xl font-bold text-lg hover:bg-indigo-50 transition-all hover:scale-105 shadow-2xl shadow-indigo-900/50"
             >
-              ✨ Build my page free
+              🎙️ Just tell me what you sell
             </Link>
             <Link
-              href="/p/demo-workshop"
+              href="/create"
               className="inline-flex items-center gap-2 px-8 py-4 bg-white/10 text-white rounded-2xl font-semibold text-lg hover:bg-white/20 transition-all border border-white/20"
             >
-              See example →
+              I have a website →
             </Link>
           </div>
 
           <div className="flex items-center justify-center gap-8 mt-14 text-sm text-white/40">
-            <span>No design skills needed</span>
+            <span>No website needed</span>
             <span className="text-white/20">·</span>
-            <span>No coding required</span>
+            <span>Voice enabled</span>
             <span className="text-white/20">·</span>
             <span>Ready in 2 minutes</span>
           </div>
@@ -97,15 +97,15 @@ export default function LandingPage() {
         <div className="container mx-auto px-4 max-w-5xl">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">How it works</h2>
-            <p className="text-gray-500 text-lg">From URL to live page in 4 steps</p>
+            <p className="text-gray-500 text-lg">Describe your brand — we build the rest</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             {[
-              { step: "1", emoji: "🌐", title: "Paste your URL", desc: "Drop your website link and AI extracts your brand automatically" },
-              { step: "2", emoji: "🎨", title: "Review your brand", desc: "Colors, logo, and tagline are pre-filled. Adjust if needed." },
-              { step: "3", emoji: "✍️", title: "AI writes copy", desc: "Claude generates headlines, benefits, FAQs, and testimonials" },
-              { step: "4", emoji: "🚀", title: "Publish & collect", desc: "One click to go live. Razorpay payment embedded automatically." },
+              { step: "1", emoji: "🎙️", title: "Tell us what you sell", desc: "Type or speak — 'I make homemade jams, my brand is Nani's Kitchen'" },
+              { step: "2", emoji: "🤖", title: "AI asks a few things", desc: "Price, color preferences. Takes 30 seconds max." },
+              { step: "3", emoji: "✨", title: "Checkout page generated", desc: "Claude writes copy, picks colors, and builds your payment page" },
+              { step: "4", emoji: "🚀", title: "Share & collect", desc: "Send the link. Customers pay via UPI, cards, wallets — instantly." },
             ].map((item, i) => (
               <div key={i} className="text-center">
                 <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-100 mb-4">
@@ -158,10 +158,10 @@ export default function LandingPage() {
             Free to use. No account required for demo.
           </p>
           <Link
-            href="/create"
+            href="/chat"
             className="inline-flex items-center gap-2 px-10 py-5 bg-white text-indigo-700 rounded-2xl font-bold text-xl hover:bg-indigo-50 transition-all hover:scale-105 shadow-2xl shadow-indigo-900/30"
           >
-            ✨ Create your Smart Page
+            🎙️ Create your Smart Page
           </Link>
         </div>
       </section>

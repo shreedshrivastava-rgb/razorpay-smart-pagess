@@ -5,7 +5,8 @@ import type { WizardInput } from "@/lib/schema/page-schema";
 
 export async function POST(req: NextRequest) {
   try {
-    const input: WizardInput = await req.json();
+    const body = await req.json() as WizardInput & { existingSlug?: string };
+    const { existingSlug, ...input } = body;
 
     if (!input.pageType || !input.productName) {
       return NextResponse.json(
@@ -15,6 +16,7 @@ export async function POST(req: NextRequest) {
     }
 
     const page = await buildFullPage(input);
+    if (existingSlug) page.slug = existingSlug;
     await savePage(page);
 
     return NextResponse.json({ success: true, data: page });

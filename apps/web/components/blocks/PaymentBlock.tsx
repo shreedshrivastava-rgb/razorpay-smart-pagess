@@ -11,13 +11,21 @@ interface PaymentBlockProps {
   pageTitle: string;
 }
 
-declare global {
-  interface Window {
-    Razorpay: new (options: Record<string, unknown>) => {
-      open: () => void;
-    };
-  }
+interface RazorpayOptions {
+  key: string;
+  order_id?: string;
+  amount?: number;
+  currency?: string;
+  name?: string;
+  description?: string;
+  image?: string;
+  prefill?: { name?: string; email?: string; contact?: string };
+  theme?: { color?: string };
+  handler?: (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => void;
+  modal?: { ondismiss?: () => void };
 }
+
+type RazorpayCtor = new (options: RazorpayOptions) => { open: () => void };
 
 // Demo mode = no key, placeholder key, OR live key without explicit opt-in
 // Set NEXT_PUBLIC_RAZORPAY_LIVE=true to open the real Razorpay modal with a live key
@@ -42,6 +50,10 @@ export function PaymentBlock({ payment, brand }: PaymentBlockProps) {
 
   async function handlePay() {
     if (!name || !email) return;
+    if (!payment.amount || payment.amount <= 0) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     if (isDemoKey) {
@@ -52,33 +64,63 @@ export function PaymentBlock({ payment, brand }: PaymentBlockProps) {
       return;
     }
 
-    // Real Razorpay flow
-    if (!window.Razorpay) {
-      await new Promise<void>((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = "https://checkout.razorpay.com/v1/checkout.js";
-        s.onload = () => resolve();
-        s.onerror = () => reject();
-        document.head.appendChild(s);
+    try {
+      // Step 1: create a server-side order so amount can't be tampered client-side
+      const orderRes = await fetch("/api/razorpay/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: payment.amount,
+          currency: payment.currency,
+          receipt: `receipt_${Date.now()}`,
+        }),
       });
-    }
 
-    const rzp = new window.Razorpay({
-      key: payment.razorpayKeyId,
-      amount: payment.amount,
-      currency: payment.currency,
-      name: brand.name,
-      description: payment.name,
-      image: brand.logo,
-      prefill: { name, email, contact: phone },
-      theme: { color: payment.theme?.color || brand.primaryColor },
-      handler: () => {
-        setLoading(false);
-        setShowDemoSuccess(true);
-      },
-      modal: { ondismiss: () => setLoading(false) },
-    });
-    rzp.open();
+      if (!orderRes.ok) {
+        throw new Error(`Order creation failed: ${orderRes.status}`);
+      }
+
+      const { orderId } = await orderRes.json() as { orderId: string };
+
+      // Step 2: load checkout.js if not already present
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const w = window as any;
+      if (!w.Razorpay) {
+        await new Promise<void>((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://checkout.razorpay.com/v1/checkout.js";
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error("Failed to load Razorpay checkout"));
+          document.head.appendChild(s);
+        });
+      }
+
+      // Step 3: open checkout with order_id
+      const RazorpayCtor = w.Razorpay as RazorpayCtor;
+      const rzp = new RazorpayCtor({
+        key: payment.razorpayKeyId,
+        order_id: orderId,
+        amount: payment.amount,
+        currency: payment.currency,
+        name: brand.name,
+        description: payment.name,
+        image: brand.logo,
+        prefill: { name, email, contact: phone },
+        theme: { color: payment.theme?.color || brand.primaryColor },
+        handler: (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
+          // Payment IDs available here for server-side verification if needed:
+          // response.razorpay_payment_id, response.razorpay_order_id, response.razorpay_signature
+          void response;
+          setLoading(false);
+          setShowDemoSuccess(true);
+        },
+        modal: { ondismiss: () => setLoading(false) },
+      });
+      rzp.open();
+    } catch (err) {
+      console.error("Payment error:", err);
+      setLoading(false);
+    }
   }
 
   if (showDemoSuccess) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { WizardInput, PageType } from "@/lib/schema/page-schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,114 +13,305 @@ interface Step3DetailsProps {
   onBack: () => void;
 }
 
-const PAGE_TYPES: { type: PageType; label: string; emoji: string; description: string }[] = [
-  { type: "workshop", label: "Workshop", emoji: "🎓", description: "Hands-on learning event" },
-  { type: "event", label: "Event", emoji: "🎤", description: "Conference, meetup, concert" },
-  { type: "course", label: "Course", emoji: "📚", description: "Online or offline course" },
-  { type: "product", label: "Product", emoji: "📦", description: "Physical or digital product" },
-  { type: "service", label: "Service", emoji: "🛠️", description: "Freelance or agency work" },
-  { type: "consultation", label: "Consultation", emoji: "💼", description: "1:1 session or call" },
-  { type: "saas", label: "SaaS", emoji: "⚡", description: "Software subscription" },
-  { type: "subscription", label: "Membership", emoji: "♾️", description: "Recurring access" },
+const PAGE_TYPES: { type: PageType; emoji: string; label: string }[] = [
+  { type: "product",      emoji: "📦", label: "Product" },
+  { type: "service",      emoji: "🛠️", label: "Service" },
+  { type: "course",       emoji: "📚", label: "Course" },
+  { type: "workshop",     emoji: "🎓", label: "Workshop" },
+  { type: "event",        emoji: "🎤", label: "Event" },
+  { type: "consultation", emoji: "💼", label: "1:1 Session" },
+  { type: "saas",         emoji: "⚡", label: "SaaS" },
+  { type: "subscription", emoji: "♾️", label: "Membership" },
 ];
 
-export function Step3Details({ input, onUpdate, onNext, onBack }: Step3DetailsProps) {
-  const set = (key: keyof WizardInput, value: unknown) =>
-    onUpdate({ ...input, [key]: value });
+interface ProductExtract {
+  name?: string;
+  description?: string;
+  imageUrl?: string;
+  images?: string[];
+  price?: string;
+  brand?: string;
+  primaryColor?: string;
+  logo?: string;
+  bullets?: string[];
+}
 
-  const canProceed = input.pageType && input.productName && input.productDescription;
+function isUrl(s: string) {
+  try { new URL(s.startsWith("http") ? s : `https://${s}`); return true; } catch { return false; }
+}
+
+export function Step3Details({ input, onUpdate, onNext, onBack }: Step3DetailsProps) {
+  const [extracting, setExtracting] = useState(false);
+  const [extracted, setExtracted] = useState<ProductExtract | null>(null);
+  const [extractError, setExtractError] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const bullets: string[] = Array.isArray(input.productBullets) && input.productBullets.length === 3
+    ? input.productBullets as string[]
+    : ["", "", ""];
+
+  function setBullet(i: number, val: string) {
+    const next = [...bullets];
+    next[i] = val;
+    onUpdate({ ...input, productBullets: next });
+  }
+
+  function set<K extends keyof WizardInput>(key: K, value: WizardInput[K]) {
+    onUpdate({ ...input, [key]: value });
+  }
+
+  // Auto-extract whenever productUrl changes (debounced 800ms)
+  useEffect(() => {
+    const url = input.productUrl?.trim() ?? "";
+    if (!url || !isUrl(url)) { setExtracted(null); return; }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void runExtract(url);
+    }, 800);
+
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input.productUrl]);
+
+  async function runExtract(url: string) {
+    setExtracting(true);
+    setExtractError("");
+    try {
+      const normalized = url.startsWith("http") ? url : `https://${url}`;
+      const res = await fetch(`/api/extract?url=${encodeURIComponent(normalized)}`);
+      if (!res.ok) throw new Error("Failed");
+      const data = (await res.json()) as ProductExtract;
+      setExtracted(data);
+
+      // Auto-fill fields that are still empty
+      const currentBullets: string[] = Array.isArray(input.productBullets)
+        ? (input.productBullets as string[])
+        : [];
+      const bulletsAreEmpty = currentBullets.every((b) => !b?.trim());
+      const newBullets =
+        bulletsAreEmpty && data.bullets && data.bullets.length > 0
+          ? [...data.bullets.slice(0, 3), "", ""].slice(0, 3)
+          : currentBullets;
+
+      onUpdate({
+        ...input,
+        productUrl: url,
+        productImageUrl: input.productImageUrl || data.imageUrl || data.images?.[0] || "",
+        productName: input.productName || data.name || "",
+        productDescription: input.productDescription || data.description || "",
+        productBullets: newBullets,
+        brand: {
+          ...input.brand,
+          primaryColor: input.brand?.primaryColor || data.primaryColor,
+          logo: input.brand?.logo || data.logo,
+        },
+      });
+    } catch {
+      setExtractError("Couldn't pull product details from that URL. Fill in the fields below manually.");
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  const canProceed =
+    !!input.pageType &&
+    !!input.productName?.trim() &&
+    bullets.some((b) => b.trim().length > 0);
 
   return (
     <div className="max-w-2xl mx-auto">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-1">What are customers paying for?</h2>
-        <p className="text-gray-500">Tell us what you&apos;re selling so AI can build the perfect page.</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-1">What do you want to feature?</h2>
+        <p className="text-gray-500">
+          Paste your product or collection URL — we'll pull the name, image, and description automatically.
+        </p>
       </div>
 
-      <div className="flex flex-col gap-6">
-        {/* Page type picker */}
+      <div className="flex flex-col gap-5">
+
+        {/* Product URL — auto-extracts on paste */}
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
-          <label className="block text-sm font-semibold text-gray-700 mb-3">Type of offering</label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {PAGE_TYPES.map((pt) => (
-              <button
-                key={pt.type}
-                onClick={() => set("pageType", pt.type)}
-                className={cn(
-                  "flex flex-col items-center gap-1 p-3 rounded-2xl border-2 transition-all text-center hover:bg-indigo-50",
-                  input.pageType === pt.type
-                    ? "border-indigo-500 bg-indigo-50"
-                    : "border-gray-100"
-                )}
-              >
-                <span className="text-2xl">{pt.emoji}</span>
-                <span className={cn(
-                  "text-xs font-semibold",
-                  input.pageType === pt.type ? "text-indigo-700" : "text-gray-700"
-                )}>
-                  {pt.label}
-                </span>
-              </button>
-            ))}
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+            Product or collection URL
+          </label>
+          <div className="relative">
+            <Input
+              value={input.productUrl || ""}
+              onChange={(e) => set("productUrl", e.target.value)}
+              placeholder="https://yourstore.com/products/item"
+              className="h-11 rounded-xl pr-10"
+            />
+            {extracting && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                <svg className="animate-spin h-4 w-4 text-indigo-500" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              </span>
+            )}
           </div>
+          {extractError && <p className="text-xs text-red-500 mt-1.5">{extractError}</p>}
+
+          {/* Auto-extracted product card */}
+          {extracted && !extracting && (extracted.imageUrl || extracted.name) && (
+            <div className="mt-4 flex gap-3 p-3 bg-indigo-50 rounded-2xl border border-indigo-100">
+              {extracted.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={extracted.imageUrl}
+                  alt="product"
+                  className="w-16 h-16 rounded-xl object-cover shrink-0 bg-white"
+                  onError={(e) => e.currentTarget.remove()}
+                />
+              )}
+              <div className="flex flex-col justify-center min-w-0">
+                {extracted.name && (
+                  <p className="text-sm font-semibold text-gray-900 truncate">{extracted.name}</p>
+                )}
+                {extracted.price && (
+                  <p className="text-sm text-indigo-600 font-medium">{extracted.price}</p>
+                )}
+                {extracted.description && (
+                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{extracted.description}</p>
+                )}
+                <p className="text-xs text-indigo-500 mt-1 font-medium">✓ Details auto-filled below</p>
+              </div>
+            </div>
+          )}
+
+          {/* Image picker if multiple found */}
+          {extracted?.images && extracted.images.length > 1 && (
+            <div className="mt-3">
+              <p className="text-xs text-gray-500 mb-2">Pick the best image:</p>
+              <div className="flex gap-2 flex-wrap">
+                {extracted.images.slice(0, 5).map((img, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={i}
+                    src={img}
+                    alt=""
+                    onClick={() => set("productImageUrl", img)}
+                    className={cn(
+                      "w-14 h-14 rounded-xl object-cover cursor-pointer border-2 transition-all",
+                      input.productImageUrl === img
+                        ? "border-indigo-500 ring-2 ring-indigo-200"
+                        : "border-gray-200 hover:border-indigo-300"
+                    )}
+                    onError={(e) => e.currentTarget.remove()}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Product details */}
-        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 flex flex-col gap-5">
+        {/* Product name + type */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 flex flex-col gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Name of your offering *
+              Product / offering name *
             </label>
             <Input
               value={input.productName || ""}
               onChange={(e) => set("productName", e.target.value)}
-              placeholder={`e.g. "Next.js Bootcamp", "Brand Strategy Session"`}
+              placeholder="e.g. AirPods Pro, Brand Strategy Session"
               className="h-11 rounded-xl"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Describe what customers get *
-            </label>
-            <textarea
-              value={input.productDescription || ""}
-              onChange={(e) => set("productDescription", e.target.value)}
-              placeholder="2-day hands-on workshop where you'll learn to build and deploy production Next.js apps..."
-              rows={3}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none transition-all"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Business description
-            </label>
-            <textarea
-              value={input.businessDescription || ""}
-              onChange={(e) => set("businessDescription", e.target.value)}
-              placeholder="Who you are and what you do (AI will use this for authentic copy)"
-              rows={2}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none transition-all"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Price (₹)
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">₹</span>
-              <Input
-                type="number"
-                value={input.price ? (input.price / 100).toString() : ""}
-                onChange={(e) => set("price", Math.round(parseFloat(e.target.value || "0") * 100))}
-                placeholder="4999"
-                className="h-11 rounded-xl pl-8"
-              />
+            <label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
+            <div className="grid grid-cols-4 gap-2">
+              {PAGE_TYPES.map((pt) => (
+                <button
+                  key={pt.type}
+                  onClick={() => set("pageType", pt.type)}
+                  className={cn(
+                    "flex flex-col items-center gap-1 py-2.5 rounded-2xl border-2 text-xs font-semibold transition-all",
+                    input.pageType === pt.type
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                      : "border-gray-100 text-gray-600 hover:bg-gray-50"
+                  )}
+                >
+                  <span className="text-xl">{pt.emoji}</span>
+                  {pt.label}
+                </button>
+              ))}
             </div>
-            <p className="text-xs text-gray-400 mt-1">Leave blank to hide payment widget in preview</p>
           </div>
+        </div>
+
+        {/* 3 key selling points — shown on checkout page */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+          <label className="block text-sm font-semibold text-gray-700 mb-0.5">
+            3 reasons to buy *
+          </label>
+          <p className="text-xs text-gray-400 mb-3">
+            These appear next to the payment form. Keep each under 10 words.
+          </p>
+          <div className="flex flex-col gap-2.5">
+            {bullets.map((b, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-indigo-600"
+                  style={{ backgroundColor: "#e0e7ff" }}
+                >
+                  {i + 1}
+                </span>
+                <Input
+                  value={b}
+                  onChange={(e) => setBullet(i, e.target.value)}
+                  placeholder={
+                    i === 0 ? "Instant access, no waiting" :
+                    i === 1 ? "30-day money-back guarantee" :
+                               "1:1 onboarding call included"
+                  }
+                  className="h-10 rounded-xl"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Price */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Price (₹)</label>
+          <div className="relative">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-medium">₹</span>
+            <Input
+              type="number"
+              value={input.price ? (input.price / 100).toString() : ""}
+              onChange={(e) =>
+                set("price", Math.round(parseFloat(e.target.value || "0") * 100))
+              }
+              placeholder={
+                extracted?.price
+                  ? extracted.price.replace(/[^0-9.]/g, "")
+                  : "4999"
+              }
+              className="h-11 rounded-xl pl-8"
+            />
+          </div>
+          {extracted?.price && !input.price && (
+            <p className="text-xs text-indigo-500 mt-1">
+              Detected price: {extracted.price} — enter it above to use it.
+            </p>
+          )}
+        </div>
+
+        {/* AI context (collapsed feel) */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+            Description <span className="text-gray-400 font-normal">(for AI — not shown on page)</span>
+          </label>
+          <textarea
+            value={input.productDescription || ""}
+            onChange={(e) => set("productDescription", e.target.value)}
+            placeholder="What exactly does the customer get? Who is it for?"
+            rows={2}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+          />
         </div>
       </div>
 
@@ -132,7 +324,7 @@ export function Step3Details({ input, onUpdate, onNext, onBack }: Step3DetailsPr
           disabled={!canProceed}
           className="flex-1 h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
         >
-          Generate my page →
+          Generate checkout page →
         </Button>
       </div>
     </div>

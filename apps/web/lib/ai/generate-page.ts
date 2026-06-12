@@ -1,21 +1,19 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { buildGenerationPrompt, SYSTEM_PROMPT } from "./prompts";
 import type { PageSchema, WizardInput, Section } from "@/lib/schema/page-schema";
 import { generateId, slugify } from "@/lib/utils";
 
-// Azure-hosted Anthropic endpoint.
-// The SDK sends x-api-key automatically — no custom headers needed.
-// Strip the /anthropic suffix if present; the SDK appends /v1/messages itself.
-const AZURE_BASE_URL = (process.env.ANTHROPIC_BASE_URL ?? "")
-  .replace(/\/anthropic\/?$/, "")
-  .replace(/\/$/, "");
-
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-  ...(AZURE_BASE_URL && { baseURL: `${AZURE_BASE_URL}/anthropic` }),
-});
-
-const MODEL = process.env.ANTHROPIC_DEPLOYMENT ?? "claude-sonnet-4-6";
+// Uses plain fetch so Next.js cannot intercept or modify headers.
+// Endpoint confirmed working via: POST /anthropic/v1/messages  (x-api-key header)
+function getAzureConfig() {
+  const key = process.env.AI_API_KEY!;
+  const base = (process.env.AI_BASE_URL ?? "").replace(/\/$/, "");
+  const model = process.env.AI_MODEL ?? "claude-sonnet-4-6";
+  // base may already contain /anthropic — normalise to always end with /anthropic
+  const endpoint = base.endsWith("/anthropic")
+    ? `${base}/v1/messages`
+    : `${base}/anthropic/v1/messages`;
+  return { key, endpoint, model };
+}
 
 interface GeneratedContent {
   brand: PageSchema["brand"];
@@ -24,15 +22,35 @@ interface GeneratedContent {
 }
 
 async function callModel(prompt: string): Promise<string> {
-  const msg = await client.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: prompt }],
+  const { key, endpoint, model } = getAzureConfig();
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: prompt }],
+    }),
+    // Tell Next.js NOT to cache this request
+    cache: "no-store",
   });
 
-  const block = msg.content[0];
-  return block.type === "text" ? block.text : "";
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`${res.status} ${err}`);
+  }
+
+  const json = await res.json() as {
+    content: Array<{ type: string; text: string }>;
+  };
+
+  return json.content?.[0]?.text ?? "";
 }
 
 export async function generatePageContent(input: WizardInput): Promise<GeneratedContent> {
@@ -47,7 +65,7 @@ export async function generatePageContent(input: WizardInput): Promise<Generated
   try {
     return JSON.parse(jsonText) as GeneratedContent;
   } catch {
-    throw new Error(`AI returned invalid JSON. Preview: ${jsonText.slice(0, 200)}`);
+    throw new Error(`AI returned invalid JSON. Raw: ${jsonText.slice(0, 300)}`);
   }
 }
 
@@ -69,6 +87,8 @@ export async function buildFullPage(input: WizardInput): Promise<PageSchema> {
     },
     template: "modern",
     pageType: input.pageType,
+    productImageUrl: input.productImageUrl || input.extracted?.images?.[0],
+    productBullets: input.productBullets?.filter(Boolean),
     sections: generated.sections,
     payment: {
       razorpayKeyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_placeholder",
