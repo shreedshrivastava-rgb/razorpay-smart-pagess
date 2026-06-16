@@ -112,6 +112,8 @@ const DEMO_PAGE: PageSchema = {
     title: "Next.js 15 Workshop — Master Modern React in One Weekend | DevCraft Academy",
     description: "Hands-on 2-day workshop. Build and deploy a production Next.js app. Small cohort, live sessions. Only 8 seats.",
   },
+  maxQuantity: 1,
+  isPreOrder: false,
 };
 
 export async function GET() {
