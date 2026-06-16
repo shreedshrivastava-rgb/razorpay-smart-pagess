@@ -1,0 +1,14 @@
+.git
+.gitignore
+.DS_Store
+node_modules
+apps/web/node_modules
+apps/web/.next
+apps/web/.data
+apps/web/.env.local
+apps/web/.env.development.local
+apps/web/.env.test.local
+*.md
+docs/
+render.yaml
+vercel.json
