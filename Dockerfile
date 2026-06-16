@@ -8,7 +8,7 @@ WORKDIR /app
 # Copy package files from apps/web
 COPY apps/web/package.json apps/web/package-lock.json* ./
 
-RUN npm ci
+RUN npm install
 
 # Build stage
 FROM base AS builder
