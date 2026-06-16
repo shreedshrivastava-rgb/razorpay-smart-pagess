@@ -2,7 +2,7 @@ services:
   - type: web
     name: razorpay-smart-pages
     runtime: node
-    rootDir: razorpay-smart-pages/apps/web
+    rootDir: apps/web
     buildCommand: npm install && npm run build
     startCommand: npm run start
     envVars:
