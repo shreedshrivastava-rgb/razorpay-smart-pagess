@@ -1,5 +1,24 @@
 import { z } from "zod";
 
+// ─── Shared sub-schemas ───────────────────────────────────────────
+export const SocialLinksSchema = z.object({
+  whatsapp: z.string().optional(),
+  instagram: z.string().optional(),
+  website: z.string().optional(),
+});
+
+export const CustomFieldSchema = z.object({
+  label: z.string(),
+  required: z.boolean().default(false),
+  type: z.enum(["text", "select"]).default("text"),
+  options: z.array(z.string()).optional(),
+});
+
+export const VariantOptionSchema = z.object({
+  label: z.string(),
+  options: z.array(z.string()),
+});
+
 // ─── Brand ───────────────────────────────────────────────────────
 export const BrandSchema = z.object({
   name: z.string(),
@@ -9,6 +28,8 @@ export const BrandSchema = z.object({
   secondaryColor: z.string().default("#0f172a"),
   accentColor: z.string().optional(),
   fontFamily: z.string().optional(),
+  socialLinks: SocialLinksSchema.optional(),
+  deliveryInfo: z.string().optional(),
 });
 
 // ─── Section Types ────────────────────────────────────────────────
@@ -147,6 +168,24 @@ export const ProductSectionSchema = z.object({
   originalPrice: z.string().optional(),
 });
 
+export const PricingPlanItem = z.object({
+  name: z.string(),
+  price: z.string(),
+  period: z.string().optional(),
+  features: z.array(z.string()),
+  highlighted: z.boolean().default(false),
+});
+
+export const PricingSectionSchema = z.object({
+  id: z.string(),
+  type: z.literal("pricing"),
+  visible: z.boolean().default(true),
+  background: z.enum(["white", "light", "dark", "brand", "gradient"]).default("light"),
+  headline: z.string(),
+  subheadline: z.string().optional(),
+  items: z.array(PricingPlanItem),
+});
+
 export const TrustBadgeItem = z.object({
   icon: z.string(),
   label: z.string(),
@@ -173,6 +212,29 @@ export const StatsSectionSchema = z.object({
   items: z.array(StatItem),
 });
 
+export const ProductGridItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  price: z.number(),        // paise — minimum / starting price
+  maxPrice: z.number().optional(), // paise — maximum price when sizes differ (e.g. 0.5kg ₹200, 1.5kg ₹300)
+  currency: z.string().default("INR"),
+  imageUrl: z.string().optional(),
+  badge: z.string().optional(),   // "Best Seller", "New", "20% Off"
+  bullets: z.array(z.string()).optional(),
+});
+
+export const ProductGridSectionSchema = z.object({
+  id: z.string(),
+  type: z.literal("product-grid"),
+  visible: z.boolean().default(true),
+  background: z.enum(["white", "light", "dark", "brand", "gradient"]).default("light"),
+  headline: z.string(),
+  subheadline: z.string().optional(),
+  layout: z.enum(["grid-2", "grid-3"]).default("grid-3"),
+  items: z.array(ProductGridItemSchema),
+});
+
 export const SectionSchema = z.discriminatedUnion("type", [
   HeroSectionSchema,
   FeaturesSectionSchema,
@@ -185,12 +247,20 @@ export const SectionSchema = z.discriminatedUnion("type", [
   ProductSectionSchema,
   TrustBadgesSectionSchema,
   StatsSectionSchema,
+  PricingSectionSchema,
+  ProductGridSectionSchema,
 ]);
 
 // ─── Payment ──────────────────────────────────────────────────────
+export const CouponConfigSchema = z.object({
+  code: z.string(),
+  discountPercent: z.number().min(0).max(100),
+});
+
 export const PaymentSchema = z.object({
   razorpayKeyId: z.string().default("rzp_test_placeholder"),
   amount: z.number(),
+  originalAmount: z.number().optional(),
   currency: z.string().default("INR"),
   name: z.string(),
   description: z.string(),
@@ -202,6 +272,16 @@ export const PaymentSchema = z.object({
     })
     .optional(),
   theme: z.object({ color: z.string() }).optional(),
+  couponConfig: CouponConfigSchema.optional(),
+  customFields: z.array(CustomFieldSchema).optional(),
+  methodConfig: z
+    .object({
+      upi: z.boolean().optional(),
+      card: z.boolean().optional(),
+      netbanking: z.boolean().optional(),
+      wallet: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 // ─── Full Page Schema ─────────────────────────────────────────────
@@ -217,6 +297,7 @@ export const PageSchemaValidator = z.object({
   pageType: z.enum([
     "event", "workshop", "course", "product", "service",
     "saas", "consultation", "subscription",
+    "landing", "collection",
   ]),
   sections: z.array(SectionSchema),
   payment: PaymentSchema,
@@ -225,9 +306,24 @@ export const PageSchemaValidator = z.object({
     description: z.string(),
     ogImage: z.string().optional(),
   }),
+  // Social proof
+  reviewCount: z.number().optional(),
+  averageRating: z.number().min(0).max(5).optional(),
+  // Product variants & options
+  variants: z.array(VariantOptionSchema).optional(),
+  maxQuantity: z.number().default(1),
+  // Urgency & scarcity
+  urgencyEndsAt: z.string().optional(),
+  stockCount: z.number().optional(),
+  // Pre-order
+  isPreOrder: z.boolean().default(false),
+  deliveryLabel: z.string().optional(),
 });
 
 export type Brand = z.infer<typeof BrandSchema>;
+export type SocialLinks = z.infer<typeof SocialLinksSchema>;
+export type CustomField = z.infer<typeof CustomFieldSchema>;
+export type VariantOption = z.infer<typeof VariantOptionSchema>;
 export type HeroSection = z.infer<typeof HeroSectionSchema>;
 export type FeaturesSection = z.infer<typeof FeaturesSectionSchema>;
 export type BenefitsSection = z.infer<typeof BenefitsSectionSchema>;
@@ -239,8 +335,12 @@ export type SpeakersSection = z.infer<typeof SpeakersSectionSchema>;
 export type ProductSection = z.infer<typeof ProductSectionSchema>;
 export type TrustBadgesSection = z.infer<typeof TrustBadgesSectionSchema>;
 export type StatsSection = z.infer<typeof StatsSectionSchema>;
+export type PricingSection = z.infer<typeof PricingSectionSchema>;
+export type ProductGridItem = z.infer<typeof ProductGridItemSchema>;
+export type ProductGridSection = z.infer<typeof ProductGridSectionSchema>;
 export type Section = z.infer<typeof SectionSchema>;
 export type Payment = z.infer<typeof PaymentSchema>;
+export type CouponConfig = z.infer<typeof CouponConfigSchema>;
 export type PageSchema = z.infer<typeof PageSchemaValidator>;
 
 export type PageType = PageSchema["pageType"];
@@ -273,10 +373,40 @@ export interface WizardInput {
   productImageUrl?: string;
   productBullets?: string[];
   price?: number;
+  originalPrice?: number;
   currency?: string;
   links?: {
     homepage?: string;
     product?: string;
     collection?: string;
   };
+  // Variants & options
+  variants?: VariantOption[];
+  maxQuantity?: number;
+  customFields?: CustomField[];
+  // Urgency & scarcity
+  urgencyEndsAt?: string;
+  stockCount?: number;
+  // Pre-order
+  isPreOrder?: boolean;
+  deliveryLabel?: string;
+  // Coupons
+  couponConfig?: { code: string; discountPercent: number };
+  // Social proof
+  reviewCount?: number;
+  averageRating?: number;
+  // Language
+  language?: string;
+  // Collection page: multiple products
+  collectionProducts?: CollectionProductInput[];
+}
+
+export interface CollectionProductInput {
+  name: string;
+  price: number;     // paise — minimum / starting price
+  maxPrice?: number; // paise — maximum price when sizes have different prices
+  description?: string;
+  imageUrl?: string;
+  badge?: string;
+  bullets?: string[];
 }

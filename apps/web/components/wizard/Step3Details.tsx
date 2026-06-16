@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { WizardInput, PageType } from "@/lib/schema/page-schema";
+import type { WizardInput, PageType, CollectionProductInput } from "@/lib/schema/page-schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -13,15 +13,17 @@ interface Step3DetailsProps {
   onBack: () => void;
 }
 
-const PAGE_TYPES: { type: PageType; emoji: string; label: string }[] = [
-  { type: "product",      emoji: "📦", label: "Product" },
-  { type: "service",      emoji: "🛠️", label: "Service" },
-  { type: "course",       emoji: "📚", label: "Course" },
-  { type: "workshop",     emoji: "🎓", label: "Workshop" },
-  { type: "event",        emoji: "🎤", label: "Event" },
-  { type: "consultation", emoji: "💼", label: "1:1 Session" },
-  { type: "saas",         emoji: "⚡", label: "SaaS" },
-  { type: "subscription", emoji: "♾️", label: "Membership" },
+const PAGE_TYPES: { type: PageType; emoji: string; label: string; description: string }[] = [
+  { type: "product",      emoji: "📦", label: "Product",       description: "Physical or digital product with checkout" },
+  { type: "service",      emoji: "🛠️", label: "Service",       description: "Done-for-you service or deliverable" },
+  { type: "course",       emoji: "📚", label: "Course",        description: "Online course or learning programme" },
+  { type: "workshop",     emoji: "🎓", label: "Workshop",      description: "Live in-person or virtual training" },
+  { type: "event",        emoji: "🎤", label: "Event",         description: "Conference, meetup, or concert" },
+  { type: "consultation", emoji: "💼", label: "1:1 Session",   description: "Coaching, consulting, or advisory call" },
+  { type: "saas",         emoji: "⚡", label: "SaaS",          description: "Software or app subscription" },
+  { type: "subscription", emoji: "♾️", label: "Membership",    description: "Recurring membership or subscription" },
+  { type: "landing",      emoji: "🚀", label: "Landing Page",  description: "Full persuasion funnel for paid ads & cold traffic" },
+  { type: "collection",   emoji: "🛍️", label: "Collection",    description: "Multiple products — each with its own buy button" },
 ];
 
 interface ProductExtract {
@@ -114,10 +116,34 @@ export function Step3Details({ input, onUpdate, onNext, onBack }: Step3DetailsPr
     }
   }
 
-  const canProceed =
-    !!input.pageType &&
-    !!input.productName?.trim() &&
-    bullets.some((b) => b.trim().length > 0);
+  const isCollection = input.pageType === "collection";
+  const collectionProducts: CollectionProductInput[] =
+    (input.collectionProducts as CollectionProductInput[] | undefined) ?? [];
+
+  function addCollectionProduct() {
+    onUpdate({
+      ...input,
+      collectionProducts: [
+        ...collectionProducts,
+        { name: "", price: 0, description: "", imageUrl: "" },
+      ],
+    });
+  }
+
+  function updateCollectionProduct(i: number, updates: Partial<CollectionProductInput>) {
+    const next = collectionProducts.map((p, idx) => idx === i ? { ...p, ...updates } : p);
+    onUpdate({ ...input, collectionProducts: next });
+  }
+
+  function removeCollectionProduct(i: number) {
+    onUpdate({ ...input, collectionProducts: collectionProducts.filter((_, idx) => idx !== i) });
+  }
+
+  const canProceed = !!input.pageType && (
+    isCollection
+      ? collectionProducts.length >= 2 && collectionProducts.every((p) => p.name.trim() && p.price > 0)
+      : !!input.productName?.trim() && bullets.some((b) => b.trim().length > 0)
+  );
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -222,11 +248,12 @@ export function Step3Details({ input, onUpdate, onNext, onBack }: Step3DetailsPr
 
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
               {PAGE_TYPES.map((pt) => (
                 <button
                   key={pt.type}
                   onClick={() => set("pageType", pt.type)}
+                  title={pt.description}
                   className={cn(
                     "flex flex-col items-center gap-1 py-2.5 rounded-2xl border-2 text-xs font-semibold transition-all",
                     input.pageType === pt.type
@@ -239,68 +266,178 @@ export function Step3Details({ input, onUpdate, onNext, onBack }: Step3DetailsPr
                 </button>
               ))}
             </div>
+            {input.pageType === "landing" && (
+              <p className="text-xs text-indigo-600 mt-2 bg-indigo-50 px-3 py-2 rounded-xl">
+                🚀 Full persuasion funnel — hero, features, benefits, testimonials, stats, and FAQ — with payment anchored at the bottom. Best for cold traffic from ads.
+              </p>
+            )}
+            {input.pageType === "collection" && (
+              <p className="text-xs text-indigo-600 mt-2 bg-indigo-50 px-3 py-2 rounded-xl">
+                🛍️ Shows multiple products each with their own buy button. Add at least 2 products below.
+              </p>
+            )}
           </div>
         </div>
 
-        {/* 3 key selling points — shown on checkout page */}
-        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
-          <label className="block text-sm font-semibold text-gray-700 mb-0.5">
-            3 reasons to buy *
-          </label>
-          <p className="text-xs text-gray-400 mb-3">
-            These appear next to the payment form. Keep each under 10 words.
-          </p>
-          <div className="flex flex-col gap-2.5">
-            {bullets.map((b, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <span
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-indigo-600"
-                  style={{ backgroundColor: "#e0e7ff" }}
+        {/* ── Collection: multi-product editor ── */}
+        {isCollection && (
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-700">Products *</p>
+                <p className="text-xs text-gray-400">Add 2–8 products. Each gets its own buy button.</p>
+              </div>
+              {collectionProducts.length < 8 && (
+                <button
+                  type="button"
+                  onClick={addCollectionProduct}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 transition-colors"
                 >
-                  {i + 1}
-                </span>
-                <Input
-                  value={b}
-                  onChange={(e) => setBullet(i, e.target.value)}
-                  placeholder={
-                    i === 0 ? "Instant access, no waiting" :
-                    i === 1 ? "30-day money-back guarantee" :
-                               "1:1 onboarding call included"
-                  }
-                  className="h-10 rounded-xl"
-                />
+                  + Add product
+                </button>
+              )}
+            </div>
+
+            {collectionProducts.length === 0 && (
+              <button
+                type="button"
+                onClick={addCollectionProduct}
+                className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center text-sm text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors"
+              >
+                + Add your first product
+              </button>
+            )}
+
+            {collectionProducts.map((product, i) => (
+              <div key={i} className="border border-gray-100 rounded-2xl p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Product {i + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeCollectionProduct(i)}
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Name *</label>
+                    <Input
+                      value={product.name}
+                      onChange={(e) => updateCollectionProduct(i, { name: e.target.value })}
+                      placeholder="e.g. Chocolate Truffle Cake"
+                      className="h-9 rounded-xl text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Price (₹) *</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">₹</span>
+                      <Input
+                        type="number"
+                        value={product.price ? (product.price / 100).toString() : ""}
+                        onChange={(e) => updateCollectionProduct(i, { price: Math.round(parseFloat(e.target.value || "0") * 100) })}
+                        placeholder="499"
+                        className="h-9 rounded-xl pl-6 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Badge</label>
+                    <Input
+                      value={product.badge ?? ""}
+                      onChange={(e) => updateCollectionProduct(i, { badge: e.target.value })}
+                      placeholder="Best Seller"
+                      className="h-9 rounded-xl text-sm"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Description</label>
+                    <Input
+                      value={product.description ?? ""}
+                      onChange={(e) => updateCollectionProduct(i, { description: e.target.value })}
+                      placeholder="One-line description"
+                      className="h-9 rounded-xl text-sm"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">Image URL</label>
+                    <Input
+                      value={product.imageUrl ?? ""}
+                      onChange={(e) => updateCollectionProduct(i, { imageUrl: e.target.value })}
+                      placeholder="https://yoursite.com/image.jpg"
+                      className="h-9 rounded-xl text-sm"
+                    />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
-        </div>
+        )}
 
-        {/* Price */}
-        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
-          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Price (₹)</label>
-          <div className="relative">
-            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-medium">₹</span>
-            <Input
-              type="number"
-              value={input.price ? (input.price / 100).toString() : ""}
-              onChange={(e) =>
-                set("price", Math.round(parseFloat(e.target.value || "0") * 100))
-              }
-              placeholder={
-                extracted?.price
-                  ? extracted.price.replace(/[^0-9.]/g, "")
-                  : "4999"
-              }
-              className="h-11 rounded-xl pl-8"
-            />
-          </div>
-          {extracted?.price && !input.price && (
-            <p className="text-xs text-indigo-500 mt-1">
-              Detected price: {extracted.price} — enter it above to use it.
+        {/* 3 key selling points — shown on checkout page */}
+        {/* Single-product fields (hidden for collection pages) */}
+        {!isCollection && (<>
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+            <label className="block text-sm font-semibold text-gray-700 mb-0.5">
+              3 reasons to buy *
+            </label>
+            <p className="text-xs text-gray-400 mb-3">
+              These appear next to the payment form. Keep each under 10 words.
             </p>
-          )}
-        </div>
+            <div className="flex flex-col gap-2.5">
+              {bullets.map((b, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-indigo-600"
+                    style={{ backgroundColor: "#e0e7ff" }}
+                  >
+                    {i + 1}
+                  </span>
+                  <Input
+                    value={b}
+                    onChange={(e) => setBullet(i, e.target.value)}
+                    placeholder={
+                      i === 0 ? "Instant access, no waiting" :
+                      i === 1 ? "30-day money-back guarantee" :
+                                 "1:1 onboarding call included"
+                    }
+                    className="h-10 rounded-xl"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
 
-        {/* AI context (collapsed feel) */}
+          {/* Price */}
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Price (₹)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-medium">₹</span>
+              <Input
+                type="number"
+                value={input.price ? (input.price / 100).toString() : ""}
+                onChange={(e) =>
+                  set("price", Math.round(parseFloat(e.target.value || "0") * 100))
+                }
+                placeholder={
+                  extracted?.price
+                    ? extracted.price.replace(/[^0-9.]/g, "")
+                    : "4999"
+                }
+                className="h-11 rounded-xl pl-8"
+              />
+            </div>
+            {extracted?.price && !input.price && (
+              <p className="text-xs text-indigo-500 mt-1">
+                Detected price: {extracted.price} — enter it above to use it.
+              </p>
+            )}
+          </div>
+        </>)}
+
+        {/* AI context (always shown) */}
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
             Description <span className="text-gray-400 font-normal">(for AI — not shown on page)</span>
@@ -308,7 +445,9 @@ export function Step3Details({ input, onUpdate, onNext, onBack }: Step3DetailsPr
           <textarea
             value={input.productDescription || ""}
             onChange={(e) => set("productDescription", e.target.value)}
-            placeholder="What exactly does the customer get? Who is it for?"
+            placeholder={isCollection
+              ? "Describe your brand or collection for the AI — e.g. what you make, your style"
+              : "What exactly does the customer get? Who is it for?"}
             rows={2}
             className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
           />
@@ -324,7 +463,11 @@ export function Step3Details({ input, onUpdate, onNext, onBack }: Step3DetailsPr
           disabled={!canProceed}
           className="flex-1 h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
         >
-          Generate checkout page →
+          {isCollection
+            ? `Generate collection page (${collectionProducts.length} products) →`
+            : input.pageType === "landing"
+            ? "Generate landing page →"
+            : "Generate checkout page →"}
         </Button>
       </div>
     </div>

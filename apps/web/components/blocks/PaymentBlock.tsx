@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Payment, Brand } from "@/lib/schema/page-schema";
+import type { Payment, Brand, VariantOption } from "@/lib/schema/page-schema";
 import { formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +9,7 @@ interface PaymentBlockProps {
   payment: Payment;
   brand: Brand;
   pageTitle: string;
+  variants?: VariantOption[];
 }
 
 interface RazorpayOptions {
@@ -28,61 +29,99 @@ interface RazorpayOptions {
 type RazorpayCtor = new (options: RazorpayOptions) => { open: () => void };
 
 // Demo mode = no key, placeholder key, OR live key without explicit opt-in
-// Set NEXT_PUBLIC_RAZORPAY_LIVE=true to open the real Razorpay modal with a live key
 const IS_DEMO_MODE =
   !process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
   process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID === "rzp_test_placeholder" ||
   (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.startsWith("rzp_live") &&
     process.env.NEXT_PUBLIC_RAZORPAY_LIVE !== "true");
 
-export function PaymentBlock({ payment, brand }: PaymentBlockProps) {
+export function PaymentBlock({ payment, brand, variants = [] }: PaymentBlockProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponApplied, setCouponApplied] = useState(false);
+  const [couponError, setCouponError] = useState("");
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const [showDemoSuccess, setShowDemoSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
 
-  const formattedAmount = formatCurrency(payment.amount, payment.currency);
+  const isFree = !payment.amount || payment.amount <= 0;
   const isDemoKey =
     IS_DEMO_MODE ||
     payment.razorpayKeyId === "rzp_test_placeholder" ||
     !payment.razorpayKeyId;
 
-  async function handlePay() {
-    if (!name || !email) return;
-    if (!payment.amount || payment.amount <= 0) {
-      setLoading(false);
-      return;
+  const discount = couponApplied && payment.couponConfig
+    ? Math.round(payment.amount * payment.couponConfig.discountPercent / 100)
+    : 0;
+  const effectiveAmount = payment.amount - discount;
+
+  const formattedAmount = isFree ? "Free" : formatCurrency(effectiveAmount, payment.currency);
+
+  function applyForcedCoupon() {
+    setCouponError("");
+    if (!payment.couponConfig) return;
+    if (couponCode.trim().toUpperCase() === payment.couponConfig.code.toUpperCase()) {
+      setCouponApplied(true);
+    } else {
+      setCouponError("Invalid coupon code.");
     }
+  }
+
+  function validateInputs(): string | null {
+    if (!name.trim()) return "Please enter your name.";
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Please enter a valid email.";
+    if (phone && !/^\+?[\d\s\-()]{7,15}$/.test(phone)) return "Please enter a valid phone number.";
+    if (variants) {
+      for (const v of variants ?? []) {
+        if (!selectedVariants[v.label]) return `Please select a ${v.label}.`;
+      }
+    }
+    if (payment.customFields) {
+      for (const f of payment.customFields ?? []) {
+        if (f.required && !customFieldValues[f.label]?.trim()) {
+          return `"${f.label}" is required.`;
+        }
+      }
+    }
+    return null;
+  }
+
+  async function handlePay() {
+    setError(null);
+    const validationError = validateInputs();
+    if (validationError) { setError(validationError); return; }
     setLoading(true);
 
-    if (isDemoKey) {
-      // Demo mode — simulate payment flow
-      await new Promise((r) => setTimeout(r, 1800));
+    if (isFree || isDemoKey) {
+      await new Promise((r) => setTimeout(r, 1000));
       setLoading(false);
-      setShowDemoSuccess(true);
+      setShowSuccess(true);
       return;
     }
 
     try {
-      // Step 1: create a server-side order so amount can't be tampered client-side
       const orderRes = await fetch("/api/razorpay/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: payment.amount,
+          amount: effectiveAmount,
           currency: payment.currency,
-          receipt: `receipt_${Date.now()}`,
+          receipt: `rcpt_${Date.now()}`,
         }),
       });
 
       if (!orderRes.ok) {
-        throw new Error(`Order creation failed: ${orderRes.status}`);
+        const { error: errMsg } = await orderRes.json() as { error?: string };
+        throw new Error(errMsg || `Order creation failed (${orderRes.status})`);
       }
 
       const { orderId } = await orderRes.json() as { orderId: string };
 
-      // Step 2: load checkout.js if not already present
+      // Load Razorpay checkout.js if not already present
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const w = window as any;
       if (!w.Razorpay) {
@@ -90,29 +129,41 @@ export function PaymentBlock({ payment, brand }: PaymentBlockProps) {
           const s = document.createElement("script");
           s.src = "https://checkout.razorpay.com/v1/checkout.js";
           s.onload = () => resolve();
-          s.onerror = () => reject(new Error("Failed to load Razorpay checkout"));
+          s.onerror = () => reject(new Error("Failed to load payment SDK"));
           document.head.appendChild(s);
         });
       }
 
-      // Step 3: open checkout with order_id
       const RazorpayCtor = w.Razorpay as RazorpayCtor;
       const rzp = new RazorpayCtor({
         key: payment.razorpayKeyId,
         order_id: orderId,
-        amount: payment.amount,
+        amount: effectiveAmount,
         currency: payment.currency,
         name: brand.name,
         description: payment.name,
         image: brand.logo,
         prefill: { name, email, contact: phone },
         theme: { color: payment.theme?.color || brand.primaryColor },
-        handler: (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
-          // Payment IDs available here for server-side verification if needed:
-          // response.razorpay_payment_id, response.razorpay_order_id, response.razorpay_signature
-          void response;
-          setLoading(false);
-          setShowDemoSuccess(true);
+        handler: async (response) => {
+          // Server-side signature verification before showing success
+          try {
+            const verifyRes = await fetch("/api/razorpay/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+              }),
+            });
+            if (!verifyRes.ok) throw new Error("Signature verification failed");
+            setLoading(false);
+            setShowSuccess(true);
+          } catch {
+            setLoading(false);
+            setError("Payment could not be verified. Please contact support.");
+          }
         },
         modal: { ondismiss: () => setLoading(false) },
       });
@@ -120,17 +171,18 @@ export function PaymentBlock({ payment, brand }: PaymentBlockProps) {
     } catch (err) {
       console.error("Payment error:", err);
       setLoading(false);
+      setError(err instanceof Error ? err.message : "Payment failed. Please try again.");
     }
   }
 
-  if (showDemoSuccess) {
-    return <SuccessState brand={brand} name={name} amount={formattedAmount} />;
+  if (showSuccess) {
+    return <SuccessState brand={brand} name={name} amount={formattedAmount} isFree={isFree} />;
   }
 
   return (
     <section className="py-16" id="pay">
       <div className="container mx-auto px-4 max-w-md">
-        {isDemoKey && <DemoBanner />}
+        {isDemoKey && !isFree && <DemoBanner />}
 
         <div
           className="rounded-3xl overflow-hidden shadow-2xl border border-gray-100"
@@ -150,41 +202,126 @@ export function PaymentBlock({ payment, brand }: PaymentBlockProps) {
             <h3 className="text-xl font-bold">{payment.name}</h3>
             <p className="text-white/70 text-sm mt-1">{payment.description}</p>
             <div className="mt-4 flex items-baseline gap-2">
-              <span className="text-4xl font-bold">{formattedAmount}</span>
-              <span className="text-white/50 text-sm">{payment.currency}</span>
+              {isFree ? (
+                <span className="text-4xl font-bold">Free</span>
+              ) : (
+                <>
+                  <span className="text-4xl font-bold">{formattedAmount}</span>
+                  {couponApplied && (
+                    <span className="text-white/50 line-through text-xl">
+                      {formatCurrency(payment.amount, payment.currency)}
+                    </span>
+                  )}
+                  <span className="text-white/50 text-sm">{payment.currency}</span>
+                </>
+              )}
             </div>
           </div>
 
           {/* Form */}
           <div className="bg-white px-8 py-6 flex flex-col gap-4">
-            <Field
-              label="Full Name *"
-              type="text"
-              value={name}
-              onChange={setName}
-              placeholder="Priya Sharma"
-              brand={brand}
-            />
-            <Field
-              label="Email Address *"
-              type="email"
-              value={email}
-              onChange={setEmail}
-              placeholder="priya@example.com"
-              brand={brand}
-            />
-            <Field
-              label="Phone Number"
-              type="tel"
-              value={phone}
-              onChange={setPhone}
-              placeholder="+91 98765 43210"
-              brand={brand}
-            />
+            <Field label="Full Name *" type="text" value={name} onChange={setName} placeholder="Priya Sharma" brand={brand} />
+            <Field label="Email Address *" type="email" value={email} onChange={setEmail} placeholder="priya@example.com" brand={brand} />
+            <Field label="Phone Number" type="tel" value={phone} onChange={setPhone} placeholder="+91 98765 43210" brand={brand} />
+
+            {/* Product variant selectors */}
+            {variants?.map((variant) => (
+              <div key={variant.label}>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                  {variant.label} *
+                </label>
+                <select
+                  value={selectedVariants[variant.label] ?? ""}
+                  onChange={(e) => setSelectedVariants((prev) => ({ ...prev, [variant.label]: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none bg-white"
+                  onFocus={(e) => (e.target.style.borderColor = brand.primaryColor)}
+                  onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+                >
+                  <option value="">Select {variant.label}</option>
+                  {variant.options.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+
+            {/* Custom fields */}
+            {payment.customFields?.map((field) => (
+              <div key={field.label}>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                  {field.label}{field.required ? " *" : ""}
+                </label>
+                {field.type === "select" && field.options ? (
+                  <select
+                    value={customFieldValues[field.label] ?? ""}
+                    onChange={(e) => setCustomFieldValues((prev) => ({ ...prev, [field.label]: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none bg-white"
+                    onFocus={(e) => (e.target.style.borderColor = brand.primaryColor)}
+                    onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+                  >
+                    <option value="">Select...</option>
+                    {field.options.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={customFieldValues[field.label] ?? ""}
+                    onChange={(e) => setCustomFieldValues((prev) => ({ ...prev, [field.label]: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none transition-all"
+                    onFocus={(e) => (e.target.style.borderColor = brand.primaryColor)}
+                    onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+                  />
+                )}
+              </div>
+            ))}
+
+            {/* Coupon input */}
+            {payment.couponConfig && !couponApplied && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                  Coupon Code
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => { setCouponCode(e.target.value); setCouponError(""); }}
+                    placeholder={`e.g. ${payment.couponConfig.code}`}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none transition-all uppercase"
+                    onFocus={(e) => (e.target.style.borderColor = brand.primaryColor)}
+                    onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
+                  />
+                  <button
+                    type="button"
+                    onClick={applyForcedCoupon}
+                    className="px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all"
+                    style={{ borderColor: brand.primaryColor, color: brand.primaryColor }}
+                  >
+                    Apply
+                  </button>
+                </div>
+                {couponError && <p className="text-red-500 text-xs mt-1">{couponError}</p>}
+              </div>
+            )}
+            {couponApplied && payment.couponConfig && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
+                ✓ Coupon <strong>{payment.couponConfig.code}</strong> applied — {payment.couponConfig.discountPercent}% off
+              </div>
+            )}
+
+            {/* Error message */}
+            {error && (
+              <div className="flex items-start gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-2xl text-sm text-red-700">
+                <span>⚠</span>
+                <span>{error}</span>
+              </div>
+            )}
 
             <button
               onClick={handlePay}
-              disabled={loading || !name || !email}
+              disabled={loading}
               className={cn(
                 "w-full py-4 rounded-2xl text-white font-bold text-lg mt-2 transition-all duration-200",
                 "hover:scale-[1.02] active:scale-[0.98]",
@@ -192,12 +329,10 @@ export function PaymentBlock({ payment, brand }: PaymentBlockProps) {
                 "shadow-lg"
               )}
               style={{
-                background:
-                  !name || !email
-                    ? "#9ca3af"
-                    : `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor || brand.primaryColor})`,
-                boxShadow:
-                  name && email ? `0 8px 24px -4px ${brand.primaryColor}50` : undefined,
+                background: loading
+                  ? "#9ca3af"
+                  : `linear-gradient(135deg, ${brand.primaryColor}, ${brand.secondaryColor || brand.primaryColor})`,
+                boxShadow: !loading ? `0 8px 24px -4px ${brand.primaryColor}50` : undefined,
               }}
             >
               {loading ? (
@@ -206,21 +341,25 @@ export function PaymentBlock({ payment, brand }: PaymentBlockProps) {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  {isDemoKey ? "Processing demo…" : "Opening payment…"}
+                  Processing…
                 </span>
+              ) : isFree ? (
+                "Register for Free"
               ) : (
                 `Pay ${formattedAmount}`
               )}
             </button>
 
-            <div className="flex items-center justify-center gap-3 pt-1">
-              <span className="flex items-center gap-1 text-xs text-gray-400">
-                <LockIcon />
-                Secure &amp; encrypted
-              </span>
-              <span className="text-gray-200">·</span>
-              <span className="text-xs text-gray-400">Powered by Razorpay</span>
-            </div>
+            {!isFree && (
+              <div className="flex items-center justify-center gap-3 pt-1">
+                <span className="flex items-center gap-1 text-xs text-gray-400">
+                  <LockIcon />
+                  Secure &amp; encrypted
+                </span>
+                <span className="text-gray-200">·</span>
+                <span className="text-xs text-gray-400">Powered by Razorpay</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -245,9 +384,6 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none transition-all"
-        style={
-          { "--focus-color": brand.primaryColor } as React.CSSProperties
-        }
         onFocus={(e) => (e.target.style.borderColor = brand.primaryColor)}
         onBlur={(e) => (e.target.style.borderColor = "#e5e7eb")}
       />
@@ -269,9 +405,9 @@ function DemoBanner() {
 }
 
 function SuccessState({
-  brand, name, amount,
+  brand, name, amount, isFree,
 }: {
-  brand: Brand; name: string; amount: string;
+  brand: Brand; name: string; amount: string; isFree: boolean;
 }) {
   return (
     <section className="py-16" id="pay">
@@ -289,14 +425,18 @@ function SuccessState({
             <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
               ✅
             </div>
-            <h3 className="text-2xl font-bold mb-2">Payment Successful!</h3>
+            <h3 className="text-2xl font-bold mb-2">
+              {isFree ? "You&apos;re registered!" : "Payment Successful!"}
+            </h3>
             <p className="text-white/80">
-              Thank you, {name || "there"}! Your payment of {amount} was received.
+              {isFree
+                ? `Welcome, ${name || "there"}! Your spot is confirmed.`
+                : `Thank you, ${name || "there"}! Your payment of ${amount} was received.`}
             </p>
           </div>
           <div className="bg-white px-8 py-6">
             <p className="text-sm text-gray-500">
-              A confirmation has been sent to your email. You&apos;ll hear from us shortly.
+              You&apos;ll hear from the organiser shortly with next steps.
             </p>
             <button
               onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}

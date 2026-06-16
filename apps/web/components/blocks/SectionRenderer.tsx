@@ -8,14 +8,16 @@ import { TrustBadgesBlock } from "./TrustBadgesBlock";
 import { StatsBlock } from "./StatsBlock";
 import { AgendaBlock } from "./AgendaBlock";
 import { SpeakersBlock } from "./SpeakersBlock";
+import { ProductGridBlock } from "./ProductGridBlock";
 
 interface SectionRendererProps {
   section: Section;
   brand: Brand;
   onCtaClick?: () => void;
+  razorpayKeyId?: string;
 }
 
-export function SectionRenderer({ section, brand, onCtaClick }: SectionRendererProps) {
+export function SectionRenderer({ section, brand, onCtaClick, razorpayKeyId }: SectionRendererProps) {
   if (!section.visible) return null;
 
   switch (section.type) {
@@ -38,6 +40,14 @@ export function SectionRenderer({ section, brand, onCtaClick }: SectionRendererP
       return <AgendaBlock section={section} brand={brand} />;
     case "speakers":
       return <SpeakersBlock section={section} brand={brand} />;
+    case "product-grid":
+      return (
+        <ProductGridBlock
+          section={section}
+          brand={brand}
+          razorpayKeyId={razorpayKeyId ?? "rzp_test_placeholder"}
+        />
+      );
     default:
       return null;
   }

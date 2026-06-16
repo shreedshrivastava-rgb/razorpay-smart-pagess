@@ -7,75 +7,143 @@ interface VoiceButtonProps {
   disabled?: boolean;
 }
 
+// Minimal interface — SpeechRecognition is absent from older TS DOM typings
+interface ISpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  _finalText?: string;
+  start(): void;
+  stop(): void;
+  onstart: ((ev: Event) => void) | null;
+  onend: ((ev: Event) => void) | null;
+  onerror: ((ev: { error: string } & Event) => void) | null;
+  onresult: ((ev: {
+    results: { isFinal: boolean; [i: number]: { transcript: string } }[];
+  } & Event) => void) | null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const SR: (new () => ISpeechRecognition) | undefined =
+  typeof window !== "undefined"
+    ? ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
+    : undefined;
+
 export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [processing, setProcessing] = useState(false);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
+  const recognitionRef = useRef<ISpeechRecognition | null>(null);
   const onTranscriptRef = useRef(onTranscript);
   useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
 
+  // ─── MediaRecorder fallback (ElevenLabs) ────────────────────────────────────
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
   useEffect(() => {
-    setSupported(
-      typeof navigator !== "undefined" &&
-      !!navigator.mediaDevices?.getUserMedia
-    );
+    setSupported(!!SR || !!navigator.mediaDevices?.getUserMedia);
   }, []);
 
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+  // ─── Web Speech API path (primary) ──────────────────────────────────────────
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : "audio/mp4";
+  function startSpeechRecognition(): boolean {
+    if (!SR) return false;
 
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
+    const recognition = new SR();
+    recognition.continuous = true;      // keep listening until user taps stop
+    recognition.interimResults = true;  // show live transcript as they speak
+    recognition.lang = "en-IN";
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
+    recognition.onstart = () => setListening(true);
 
-      recorder.onstop = async () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        chunksRef.current = [];
-
-        if (blob.size < 500) { setProcessing(false); return; }
-
-        try {
-          const fd = new FormData();
-          fd.append("audio", blob, `rec.${mimeType.includes("mp4") ? "mp4" : "webm"}`);
-          const res = await fetch("/api/stt", { method: "POST", body: fd });
-          if (!res.ok) { console.error("STT failed:", res.status); return; }
-          const { text } = await res.json() as { text: string };
-          if (text?.trim()) onTranscriptRef.current(text.trim());
-        } catch (err) {
-          console.error("STT error:", err);
-        } finally {
-          setProcessing(false);
+    recognition.onresult = (event) => {
+      let finalText = "";
+      for (let i = 0; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalText += event.results[i][0].transcript + " ";
         }
-      };
+      }
+      if (finalText.trim()) recognition._finalText = finalText.trim();
+    };
 
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setListening(true);
-    } catch (err) {
-      console.error("Mic access error:", err);
+    recognition.onerror = (event) => {
+      if (event.error !== "no-speech") {
+        console.error("SpeechRecognition error:", event.error);
+      }
+    };
+
+    recognition.onend = () => {
+      const text = recognition._finalText ?? "";
+      if (text) onTranscriptRef.current(text);
       setListening(false);
-    }
+      setProcessing(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    return true;
   }
 
-  function stopRecording() {
+  function stopSpeechRecognition() {
+    recognitionRef.current?.stop();
+  }
+
+  // ─── MediaRecorder + ElevenLabs path (fallback) ──────────────────────────────
+
+  async function startMediaRecorder() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
+
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm")
+      ? "audio/webm"
+      : "audio/mp4";
+
+    const recorder = new MediaRecorder(stream, { mimeType });
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = async () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+
+      const blob = new Blob(chunksRef.current, { type: mimeType });
+      chunksRef.current = [];
+
+      if (blob.size < 500) { setProcessing(false); return; }
+
+      try {
+        const fd = new FormData();
+        fd.append("audio", blob, `rec.${mimeType.includes("mp4") ? "mp4" : "webm"}`);
+        const res = await fetch("/api/stt", { method: "POST", body: fd });
+        if (!res.ok) {
+          const body = await res.text();
+          console.error("STT failed:", res.status, body);
+          return;
+        }
+        const { text } = await res.json() as { text: string };
+        if (text?.trim()) onTranscriptRef.current(text.trim());
+      } catch (err) {
+        console.error("STT error:", err);
+      } finally {
+        setProcessing(false);
+      }
+    };
+
+    recorder.start();
+    mediaRecorderRef.current = recorder;
+    setListening(true);
+  }
+
+  function stopMediaRecorder() {
     if (mediaRecorderRef.current?.state === "recording") {
       setListening(false);
       setProcessing(true);
@@ -83,9 +151,22 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
     }
   }
 
+  // ─── Unified toggle ──────────────────────────────────────────────────────────
+
   function toggle() {
-    if (listening) stopRecording();
-    else void startRecording();
+    if (listening) {
+      // Stop whichever path is active
+      if (recognitionRef.current) stopSpeechRecognition();
+      else stopMediaRecorder();
+      return;
+    }
+
+    // Try Web Speech API first; fall back to MediaRecorder+ElevenLabs
+    const usedSR = startSpeechRecognition();
+    if (!usedSR) void startMediaRecorder().catch((err) => {
+      console.error("Mic access error:", err);
+      setListening(false);
+    });
   }
 
   if (!supported) return null;

@@ -20,15 +20,70 @@ export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
     fontFamily: "var(--font-jakarta), var(--font-inter), system-ui, sans-serif",
   } as React.CSSProperties;
 
+  const wrapper = cn("min-h-screen font-sans antialiased bg-white", isPreview && "pointer-events-auto");
+
+  // ── Landing page: full persuasion funnel, payment card at bottom ──
+  if (page.pageType === "landing") {
+    return (
+      <div className={wrapper} style={brandStyle}>
+        <CheckoutNav brand={brand} payment={payment} />
+        <LandingHero page={page} brand={brand} payment={payment} />
+        <div className="bg-white">
+          {sections.map((section) => (
+            <SectionRenderer
+              key={section.id}
+              section={section}
+              brand={brand}
+              onCtaClick={() => document.getElementById("pay")?.scrollIntoView({ behavior: "smooth" })}
+              razorpayKeyId={payment.razorpayKeyId}
+            />
+          ))}
+        </div>
+        {/* Payment anchored at the bottom for landing pages */}
+        <div id="pay" className="py-16 bg-gray-50">
+          <div className="container mx-auto px-4 max-w-md">
+            <h2 className="text-2xl font-bold text-center text-gray-900 mb-8">
+              Get started today
+            </h2>
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+              <InlinePaymentCard page={page} brand={brand} />
+            </div>
+          </div>
+        </div>
+        <CheckoutFooter brand={brand} />
+      </div>
+    );
+  }
+
+  // ── Collection page: multi-product grid, no single payment sidebar ──
+  if (page.pageType === "collection") {
+    return (
+      <div className={wrapper} style={brandStyle}>
+        <CheckoutNav brand={brand} payment={payment} />
+        <CollectionHero brand={brand} payment={payment} />
+        <div className="bg-white">
+          {sections.map((section) => (
+            <SectionRenderer
+              key={section.id}
+              section={section}
+              brand={brand}
+              onCtaClick={() => {}}
+              razorpayKeyId={payment.razorpayKeyId}
+            />
+          ))}
+        </div>
+        <CheckoutFooter brand={brand} />
+      </div>
+    );
+  }
+
+  // ── Default: checkout-optimised layout (sidebar payment card) ──
   const belowFoldTypes = new Set(["testimonials", "faq", "agenda", "speakers", "stats", "cta"]);
   const aboveSections = sections.filter((s) => !belowFoldTypes.has(s.type));
   const belowSections = sections.filter((s) => belowFoldTypes.has(s.type));
 
   return (
-    <div
-      className={cn("min-h-screen font-sans antialiased bg-white", isPreview && "pointer-events-auto")}
-      style={brandStyle}
-    >
+    <div className={wrapper} style={brandStyle}>
       <a href="#pay" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-white focus:text-gray-900 focus:rounded focus:shadow-lg focus:text-sm">
         Skip to payment
       </a>
@@ -38,7 +93,13 @@ export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
       {belowSections.length > 0 && (
         <div className="bg-white">
           {belowSections.map((section) => (
-            <SectionRenderer key={section.id} section={section} brand={brand} onCtaClick={() => {}} />
+            <SectionRenderer
+              key={section.id}
+              section={section}
+              brand={brand}
+              onCtaClick={() => {}}
+              razorpayKeyId={payment.razorpayKeyId}
+            />
           ))}
         </div>
       )}
@@ -217,7 +278,7 @@ function CheckoutHero({
 
           {/* RIGHT: transaction world */}
           <div className="bg-white p-6 md:p-8 lg:sticky lg:top-[57px] lg:self-start">
-            <InlinePaymentCard payment={payment} brand={brand} />
+            <InlinePaymentCard page={page} brand={brand} />
           </div>
 
         </div>
@@ -233,28 +294,63 @@ const IS_DEMO_MODE =
   (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.startsWith("rzp_live") &&
     process.env.NEXT_PUBLIC_RAZORPAY_LIVE !== "true");
 
-function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand }) {
+function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) {
+  const { payment } = page;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponApplied, setCouponApplied] = useState(false);
+  const [couponError, setCouponError] = useState("");
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
+  const isFree = !payment.amount || payment.amount <= 0;
   const isDemoKey =
     IS_DEMO_MODE ||
     !payment.razorpayKeyId ||
     payment.razorpayKeyId === "rzp_test_placeholder";
 
-  const formatted = formatCurrency(payment.amount, payment.currency);
+  const discount = couponApplied && payment.couponConfig
+    ? Math.round(payment.amount * payment.couponConfig.discountPercent / 100)
+    : 0;
+  const effectiveAmount = payment.amount - discount;
+  const formatted = isFree ? "Free" : formatCurrency(effectiveAmount, payment.currency);
+
+  function applyCoupon() {
+    setCouponError("");
+    if (!payment.couponConfig) return;
+    if (couponCode.trim().toUpperCase() === payment.couponConfig.code.toUpperCase()) {
+      setCouponApplied(true);
+    } else {
+      setCouponError("Invalid coupon code.");
+    }
+  }
+
+  function validateForm(): string {
+    if (!name.trim()) return "Please enter your full name.";
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Please enter a valid email address.";
+    if (phone && !/^\+?[\d\s\-()]{7,15}$/.test(phone)) return "Please enter a valid phone number.";
+    for (const v of page.variants ?? []) {
+      if (!selectedVariants[v.label]) return `Please select a ${v.label}.`;
+    }
+    for (const f of payment.customFields ?? []) {
+      if (f.required && !customFieldValues[f.label]?.trim()) return `"${f.label}" is required.`;
+    }
+    return "";
+  }
 
   async function handlePay() {
-    if (!name || !email) return;
+    const validationErr = validateForm();
+    if (validationErr) { setError(validationErr); return; }
     setLoading(true);
     setError("");
 
-    if (isDemoKey) {
-      await new Promise((r) => setTimeout(r, 1600));
+    if (isFree || isDemoKey) {
+      await new Promise((r) => setTimeout(r, 1200));
       setLoading(false);
       setSuccess(true);
       return;
@@ -265,12 +361,15 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: payment.amount,
+          amount: effectiveAmount,
           currency: payment.currency,
-          receipt: `receipt_${Date.now()}`,
+          receipt: `rcpt_${Date.now()}`,
         }),
       });
-      if (!orderRes.ok) throw new Error(`Order creation failed: ${orderRes.status}`);
+      if (!orderRes.ok) {
+        const { error: errMsg } = await orderRes.json() as { error?: string };
+        throw new Error(errMsg || `Order creation failed (${orderRes.status})`);
+      }
       const { orderId } = await orderRes.json() as { orderId: string };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -280,7 +379,7 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
           const s = document.createElement("script");
           s.src = "https://checkout.razorpay.com/v1/checkout.js";
           s.onload = () => resolve();
-          s.onerror = () => reject(new Error("Failed to load Razorpay checkout"));
+          s.onerror = () => reject(new Error("Failed to load payment SDK"));
           document.head.appendChild(s);
         });
       }
@@ -289,19 +388,38 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
       new (w.Razorpay as any)({
         key: payment.razorpayKeyId,
         order_id: orderId,
-        amount: payment.amount,
+        amount: effectiveAmount,
         currency: payment.currency,
         name: brand.name,
         description: payment.name,
         image: brand.logo,
         prefill: { name, email, contact: phone },
         theme: { color: payment.theme?.color || brand.primaryColor },
-        handler: () => { setLoading(false); setSuccess(true); },
+        handler: async (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
+          // Server-side signature verification before showing success
+          try {
+            const verifyRes = await fetch("/api/razorpay/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+              }),
+            });
+            if (!verifyRes.ok) throw new Error("Signature mismatch");
+            setLoading(false);
+            setSuccess(true);
+          } catch {
+            setLoading(false);
+            setError("Payment could not be verified. Please contact support.");
+          }
+        },
         modal: { ondismiss: () => setLoading(false) },
       }).open();
     } catch (err) {
       console.error("Payment error:", err);
-      setError("Payment couldn’t open. Please try again.");
+      setError(err instanceof Error ? err.message : "Payment failed. Please try again.");
       setLoading(false);
     }
   }
@@ -318,9 +436,13 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
           ✓
         </div>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Order Confirmed</h2>
+          <h2 className="text-xl font-bold text-gray-900">
+            {isFree ? "You’re registered!" : "Payment Successful!"}
+          </h2>
           <p className="text-gray-500 text-sm mt-1">
-            Thank you, {name}. A receipt is on its way to {email}.
+            {isFree
+              ? `Welcome, ${name}! Your spot is confirmed.`
+              : `Thank you, ${name}. You’ll hear from the organiser shortly.`}
           </p>
         </div>
         <span
@@ -328,7 +450,7 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
           style={{ backgroundColor: `${brand.primaryColor}12`, color: brand.primaryColor }}
         >
           <LockIcon className="w-3 h-3" aria-hidden="true" />
-          Payment verified by Razorpay
+          {isFree ? "Spot confirmed" : "Payment verified by Razorpay"}
         </span>
       </div>
     );
@@ -337,7 +459,7 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
   return (
     <div className="divide-y divide-gray-100" id="pay">
 
-      {/* ── Section 1: Product title + description + stars (image 1 top) ── */}
+      {/* ── Section 1: Product title + description + stars ── */}
       <div className="pb-5">
         <h2 className="text-2xl font-bold text-gray-900 leading-snug tracking-tight">
           {payment.name}
@@ -345,7 +467,6 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
         {payment.description && (
           <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">{payment.description}</p>
         )}
-        {/* Star rating row */}
         <div className="flex items-center gap-1.5 mt-3" aria-label="4.9 out of 5 stars">
           {[1, 2, 3, 4, 5].map((i) => (
             <svg key={i} className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"
@@ -357,21 +478,32 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
         </div>
       </div>
 
-      {/* ── Section 2: Price (image 1 price row) ── */}
+      {/* ── Section 2: Price ── */}
       <div className="py-5">
-        <p className="text-2xl font-bold text-gray-900 tabular-nums" translate="no">
-          {formatted}
-        </p>
-        {isDemoKey ? (
+        {isFree ? (
+          <p className="text-2xl font-bold text-gray-900">Free</p>
+        ) : (
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-bold text-gray-900 tabular-nums" translate="no">
+              {formatted}
+            </p>
+            {couponApplied && (
+              <p className="text-base text-gray-400 line-through tabular-nums" translate="no">
+                {formatCurrency(payment.amount, payment.currency)}
+              </p>
+            )}
+          </div>
+        )}
+        {!isFree && (isDemoKey ? (
           <p className="text-xs text-amber-600 mt-1 flex items-center gap-1" role="status" aria-live="polite">
             <span aria-hidden="true">🧪</span> Demo mode — no real charge will be made
           </p>
         ) : (
           <p className="text-xs text-gray-400 mt-1">Secured payments with UPI, Cards &amp; Wallets</p>
-        )}
+        ))}
       </div>
 
-      {/* ── Section 3: Form fields (image 1 color/quantity section) ── */}
+      {/* ── Section 3: Form fields ── */}
       <div className="py-5">
         <form
           onSubmit={(e) => { e.preventDefault(); void handlePay(); }}
@@ -387,18 +519,101 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
             autoComplete="tel" inputMode="tel" value={phone} onChange={setPhone}
             placeholder="+91 98765 43210" brand={brand} />
 
+          {/* Product variant selectors */}
+          {(page.variants ?? []).map((variant) => (
+            <div key={variant.label}>
+              <label className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.08em] text-gray-500 mb-1.5">
+                {variant.label}
+                <span className="text-red-400 leading-none" aria-hidden="true">*</span>
+              </label>
+              <select
+                value={selectedVariants[variant.label] ?? ""}
+                onChange={(e) => setSelectedVariants((p) => ({ ...p, [variant.label]: e.target.value }))}
+                className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 focus:outline-none transition-colors"
+                onFocus={(e) => { e.target.style.borderColor = brand.primaryColor; }}
+                onBlur={(e) => { e.target.style.borderColor = "#e5e7eb"; }}
+              >
+                <option value="">Select {variant.label}…</option>
+                {variant.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          ))}
+
+          {/* Custom fields */}
+          {(payment.customFields ?? []).map((field) => (
+            <div key={field.label}>
+              <label className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.08em] text-gray-500 mb-1.5">
+                {field.label}
+                {field.required && <span className="text-red-400 leading-none" aria-hidden="true">*</span>}
+              </label>
+              {field.type === "select" && field.options ? (
+                <select
+                  value={customFieldValues[field.label] ?? ""}
+                  onChange={(e) => setCustomFieldValues((p) => ({ ...p, [field.label]: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 focus:outline-none transition-colors"
+                  onFocus={(e) => { e.target.style.borderColor = brand.primaryColor; }}
+                  onBlur={(e) => { e.target.style.borderColor = "#e5e7eb"; }}
+                >
+                  <option value="">Select…</option>
+                  {field.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              ) : (
+                <PayField id={`cf-${field.label}`} label="" type="text" name={field.label}
+                  autoComplete="off" value={customFieldValues[field.label] ?? ""}
+                  onChange={(v) => setCustomFieldValues((p) => ({ ...p, [field.label]: v }))}
+                  placeholder="" brand={brand} />
+              )}
+            </div>
+          ))}
+
+          {/* Coupon code */}
+          {payment.couponConfig && !couponApplied && (
+            <div>
+              <label className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.08em] text-gray-500 mb-1.5">
+                Coupon Code
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={couponCode}
+                  onChange={(e) => { setCouponCode(e.target.value); setCouponError(""); }}
+                  placeholder="Enter code"
+                  className="flex-1 px-3.5 py-2.5 rounded-lg border border-gray-200 bg-gray-50 text-sm uppercase focus:outline-none"
+                  onFocus={(e) => { e.target.style.borderColor = brand.primaryColor; }}
+                  onBlur={(e) => { e.target.style.borderColor = "#e5e7eb"; }}
+                />
+                <button
+                  type="button"
+                  onClick={applyCoupon}
+                  className="px-4 py-2.5 rounded-lg text-sm font-semibold border-2 transition-colors"
+                  style={{ borderColor: brand.primaryColor, color: brand.primaryColor }}
+                >
+                  Apply
+                </button>
+              </div>
+              {couponError && (
+                <p className="text-xs text-red-600 mt-1">{couponError}</p>
+              )}
+            </div>
+          )}
+          {couponApplied && payment.couponConfig && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+              ✓ <strong>{payment.couponConfig.code}</strong> applied — {payment.couponConfig.discountPercent}% off
+            </div>
+          )}
+
           {error && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5"
               role="alert" aria-live="assertive">
-              {error}
+              ⚠ {error}
             </p>
           )}
 
-          {/* ── Section 4: CTA — "Buy Now" style from image 1 (rounded-full, full-width) ── */}
+          {/* ── Section 4: CTA button ── */}
           <div className="pt-1 flex gap-3">
             <button
               type="submit"
-              disabled={loading || !name || !email}
+              disabled={loading}
               className={cn(
                 "flex-1 py-4 rounded-full text-white font-bold text-base",
                 "flex items-center justify-center gap-2",
@@ -409,7 +624,7 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
               )}
               style={{
                 backgroundColor: brand.primaryColor,
-                boxShadow: name && email ? `0 4px 16px -2px ${brand.primaryColor}50` : undefined,
+                boxShadow: !loading ? `0 4px 16px -2px ${brand.primaryColor}50` : undefined,
                 ["--tw-ring-color" as string]: brand.primaryColor,
                 touchAction: "manipulation",
               }}
@@ -422,6 +637,8 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
                   </svg>
                   <span>{isDemoKey ? "Simulating…" : "Opening checkout…"}</span>
                 </>
+              ) : isFree ? (
+                "Register for Free"
               ) : (
                 <>
                   <LockIcon className="w-4 h-4 opacity-80 shrink-0" aria-hidden="true" />
@@ -429,7 +646,6 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
                 </>
               )}
             </button>
-            {/* Secondary ghost button — "Add to Cart" equivalent */}
             <button
               type="button"
               disabled={loading}
@@ -454,23 +670,25 @@ function InlinePaymentCard({ payment, brand }: { payment: Payment; brand: Brand 
         </form>
       </div>
 
-      {/* ── Section 5: Trust cards — exactly like "Free Delivery / Return Delivery" in image 1 ── */}
-      <div className="pt-1 divide-y divide-gray-100">
-        <div className="flex items-start gap-3.5 py-4">
-          <span className="text-xl mt-0.5 shrink-0" aria-hidden="true">🔒</span>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Secured Payment</p>
-            <p className="text-xs text-gray-400 mt-0.5">SSL encrypted &amp; verified by Razorpay</p>
+      {/* ── Section 5: Trust cards ── */}
+      {!isFree && (
+        <div className="pt-1 divide-y divide-gray-100">
+          <div className="flex items-start gap-3.5 py-4">
+            <span className="text-xl mt-0.5 shrink-0" aria-hidden="true">🔒</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Secured Payment</p>
+              <p className="text-xs text-gray-400 mt-0.5">SSL encrypted &amp; verified by Razorpay</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3.5 py-4">
+            <span className="text-xl mt-0.5 shrink-0" aria-hidden="true">↩️</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Easy Refunds</p>
+              <p className="text-xs text-gray-400 mt-0.5">Hassle-free refund policy.</p>
+            </div>
           </div>
         </div>
-        <div className="flex items-start gap-3.5 py-4">
-          <span className="text-xl mt-0.5 shrink-0" aria-hidden="true">↩️</span>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Easy Refunds</p>
-            <p className="text-xs text-gray-400 mt-0.5">Hassle-free refund policy. <span className="underline underline-offset-2 cursor-pointer">Details</span></p>
-          </div>
-        </div>
-      </div>
+      )}
 
     </div>
   );
@@ -645,6 +863,101 @@ function BrandedProductCard({ brand, payment, pageType }: { brand: Brand; paymen
         aria-hidden="true"
       />
     </div>
+  );
+}
+
+// ─── Landing page hero (full-width, no sidebar payment card) ─────
+function LandingHero({ page, brand, payment }: { page: PageSchema; brand: Brand; payment: Payment }) {
+  const heroSection = page.sections.find((s) => s.type === "hero");
+  const headline = heroSection?.type === "hero" ? heroSection.headline : payment.name;
+  const subheadline = heroSection?.type === "hero" ? heroSection.subheadline : payment.description;
+  const badge = heroSection?.type === "hero" ? heroSection.badge : undefined;
+  const urgency = heroSection?.type === "hero" ? heroSection.urgency : undefined;
+
+  return (
+    <section
+      className="py-20 md:py-28 text-center relative overflow-hidden"
+      style={{
+        background: `radial-gradient(ellipse 80% 60% at 50% -10%, ${brand.primaryColor}18 0%, transparent 70%), #fff`,
+      }}
+    >
+      <div className="container mx-auto px-4 max-w-3xl relative">
+        {badge && (
+          <span
+            className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-bold mb-5 uppercase tracking-wider"
+            style={{ backgroundColor: `${brand.primaryColor}15`, color: brand.primaryColor }}
+          >
+            {badge}
+          </span>
+        )}
+        {brand.logo && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={brand.logo} alt={brand.name} className="h-10 mx-auto mb-6 object-contain" />
+        )}
+        <h1
+          className="text-4xl md:text-6xl font-extrabold text-gray-900 leading-[1.05] tracking-tight mb-6"
+          style={{ textWrap: "balance" } as React.CSSProperties}
+        >
+          {headline}
+        </h1>
+        {subheadline && (
+          <p className="text-xl text-gray-500 leading-relaxed mb-8 max-w-2xl mx-auto">
+            {subheadline}
+          </p>
+        )}
+        {payment.amount > 0 && (
+          <p className="text-4xl font-extrabold mb-8 tabular-nums" style={{ color: brand.primaryColor }} translate="no">
+            {formatCurrency(payment.amount, payment.currency)}
+          </p>
+        )}
+        {urgency && (
+          <p className="text-sm text-orange-600 font-semibold mb-4">{urgency}</p>
+        )}
+        <a
+          href="#pay"
+          className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full text-white font-bold text-lg shadow-lg hover:opacity-90 transition-opacity"
+          style={{ backgroundColor: brand.primaryColor, boxShadow: `0 8px 32px -4px ${brand.primaryColor}60` }}
+        >
+          {payment.amount > 0 ? `Get started — ${formatCurrency(payment.amount, payment.currency)}` : "Get started for free"}
+          <span aria-hidden="true">↓</span>
+        </a>
+      </div>
+    </section>
+  );
+}
+
+// ─── Collection page hero (full-width, CTA scrolls to products) ───
+function CollectionHero({ brand, payment }: { brand: Brand; payment: Payment }) {
+  return (
+    <section
+      className="py-16 md:py-20 text-center"
+      style={{
+        background: `radial-gradient(ellipse 80% 60% at 50% -10%, ${brand.primaryColor}18 0%, transparent 70%), #fff`,
+      }}
+    >
+      <div className="container mx-auto px-4 max-w-3xl">
+        {brand.logo && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={brand.logo} alt={brand.name} className="h-10 mx-auto mb-5 object-contain" />
+        )}
+        <h1 className="text-4xl md:text-5xl font-extrabold text-gray-900 leading-tight tracking-tight mb-4">
+          {brand.name}
+        </h1>
+        {payment.description && (
+          <p className="text-lg text-gray-500 leading-relaxed mb-8 max-w-xl mx-auto">
+            {payment.description}
+          </p>
+        )}
+        <a
+          href="#products"
+          className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full text-white font-bold text-base hover:opacity-90 transition-opacity"
+          style={{ backgroundColor: brand.primaryColor }}
+        >
+          Browse collection
+          <span aria-hidden="true">↓</span>
+        </a>
+      </div>
+    </section>
   );
 }
 

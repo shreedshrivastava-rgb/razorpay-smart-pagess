@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// ElevenLabs STT proxy — keeps API key server-side
+// Azure OpenAI Whisper STT proxy — keeps API key server-side
 export async function POST(req: NextRequest) {
-  const key = process.env.ELEVENLABS_API_KEY;
-  if (!key) return NextResponse.json({ error: "STT not configured" }, { status: 503 });
+  const key = process.env.WHISPER_API_KEY;
+  const endpoint = process.env.WHISPER_ENDPOINT;
+  if (!key || !endpoint) return NextResponse.json({ error: "STT not configured" }, { status: 503 });
 
   let formData: FormData;
   try {
@@ -12,25 +13,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
 
-  const audio = formData.get("audio") as Blob | null;
+  const audio = formData.get("audio") as File | null;
   if (!audio) return NextResponse.json({ error: "audio required" }, { status: 400 });
 
   const upstream = new FormData();
-  const ext = (audio as File).name?.includes("mp4") ? "mp4" : "webm";
-  upstream.append("file", audio, `recording.${ext}`);
-  upstream.append("model_id", "scribe_v1");
-  upstream.append("language_code", "en");
-  upstream.append("tag_audio_events", "false");
+  upstream.append("file", audio, audio.name ?? "recording.webm");
 
-  const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+  const res = await fetch(endpoint, {
     method: "POST",
-    headers: { "xi-api-key": key },
+    headers: { "api-key": key },  // Azure uses api-key, not Authorization: Bearer
     body: upstream,
   });
 
   if (!res.ok) {
     const err = await res.text();
-    console.error("ElevenLabs STT error:", err);
+    console.error("Whisper STT error:", res.status, err);
     return NextResponse.json({ error: "STT failed" }, { status: res.status });
   }
 
