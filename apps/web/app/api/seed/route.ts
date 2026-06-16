@@ -16,6 +16,8 @@ const DEMO_PAGE: PageSchema = {
   },
   template: "modern",
   pageType: "workshop",
+  maxQuantity: 1,
+  isPreOrder: false,
   sections: [
     {
       id: "s1", type: "hero", visible: true, background: "gradient", variant: "centered",

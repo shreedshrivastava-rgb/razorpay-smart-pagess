@@ -2,8 +2,15 @@ import { writeFile, readFile, mkdir } from "fs/promises";
 import path from "path";
 import type { PageSchema } from "@/lib/schema/page-schema";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
+// Vercel's serverless runtime has a read-only filesystem except for /tmp
+const DATA_DIR = process.env.VERCEL
+  ? "/tmp/.smart-pages-data"
+  : path.join(process.cwd(), ".data");
 const PAGES_FILE = path.join(DATA_DIR, "pages.json");
+
+// Module-level cache — survives across warm Lambda invocations within the same container.
+// This is the primary store on Vercel; the /tmp file is a secondary persistence layer.
+const memCache: Record<string, PageSchema> = {};
 
 // Prevent concurrent reads+writes from corrupting pages.json
 let writeLock: Promise<void> = Promise.resolve();
@@ -19,21 +26,30 @@ async function ensureDataDir() {
 }
 
 async function readPages(): Promise<Record<string, PageSchema>> {
+  // In-memory cache is always up-to-date within this container
+  if (Object.keys(memCache).length > 0) return memCache;
   try {
     const content = await readFile(PAGES_FILE, "utf-8");
-    return JSON.parse(content);
+    const parsed = JSON.parse(content) as Record<string, PageSchema>;
+    Object.assign(memCache, parsed);
+    return memCache;
   } catch {
     return {};
   }
 }
 
 async function writePages(pages: Record<string, PageSchema>) {
-  await ensureDataDir();
-  // Write to a temp file then rename for atomic replacement
-  const tmp = PAGES_FILE + ".tmp";
-  await writeFile(tmp, JSON.stringify(pages, null, 2), "utf-8");
-  const { rename } = await import("fs/promises");
-  await rename(tmp, PAGES_FILE);
+  // Always update in-memory first so reads in the same container are instant
+  Object.assign(memCache, pages);
+  try {
+    await ensureDataDir();
+    const tmp = PAGES_FILE + ".tmp";
+    await writeFile(tmp, JSON.stringify(pages, null, 2), "utf-8");
+    const { rename } = await import("fs/promises");
+    await rename(tmp, PAGES_FILE);
+  } catch {
+    // /tmp write failure is non-fatal — in-memory cache still serves this container
+  }
 }
 
 export async function savePage(page: PageSchema): Promise<void> {
@@ -69,6 +85,7 @@ export async function deletePage(slug: string): Promise<void> {
   return withLock(async () => {
     const pages = await readPages();
     delete pages[slug];
+    delete memCache[slug];
     await writePages(pages);
   });
 }

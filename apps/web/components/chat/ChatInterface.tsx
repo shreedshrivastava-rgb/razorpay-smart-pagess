@@ -165,10 +165,11 @@ export function ChatInterface() {
       if (slug) {
         setGeneratedSlug(slug);
         setPreviewVersion(0);
-        const preview = "Your page is live! Preview it below, or keep editing with me.";
+        const pageUrl = `${window.location.origin}/p/${slug}`;
+        const preview = `Your page is live! 🔗 ${pageUrl}`;
         addMessage({ role: "assistant", content: preview });
         addMessage({ role: "preview", content: "", previewSlug: slug, previewVersion: 0 });
-        void speak(preview);
+        void speak("Your page is live! The link is ready to share.");
       }
     } catch {
       setError("Couldn't generate the page. Please try again.");
@@ -502,13 +503,43 @@ function ChatBubble({ message }: { message: Message }) {
     <div className="flex items-start gap-2.5">
       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-sm shrink-0 mt-0.5 shadow-sm">✦</div>
       <div className="max-w-[78%] bg-white border border-gray-100 shadow-sm rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800 leading-relaxed">
-        {message.content}
+        <MessageText content={message.content} />
       </div>
     </div>
   );
 }
 
+// Renders message text, turning URLs into clickable links
+function MessageText({ content }: { content: string }) {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = content.split(urlRegex);
+  return (
+    <>
+      {parts.map((part, i) =>
+        urlRegex.test(part) ? (
+          <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+            className="text-indigo-600 underline break-all font-medium">
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 function PreviewCard({ slug, version }: { slug: string; version: number }) {
+  const pageUrl = typeof window !== "undefined" ? `${window.location.origin}/p/${slug}` : `/p/${slug}`;
+  const [copied, setCopied] = useState(false);
+
+  function copyLink() {
+    void navigator.clipboard.writeText(pageUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
   return (
     <div className="self-start w-full max-w-sm flex flex-col gap-2 my-1">
       <div className="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-2xl p-4 text-white shadow-lg shadow-indigo-200">
@@ -516,17 +547,20 @@ function PreviewCard({ slug, version }: { slug: string; version: number }) {
           <span className="text-lg">🎉</span>
           <p className="text-sm font-semibold">Your page is live!</p>
         </div>
+        {/* URL visible as text */}
+        <div className="bg-white/15 rounded-xl px-3 py-2 mb-3 flex items-center gap-2">
+          <span className="text-xs text-white/90 break-all flex-1 font-mono">{pageUrl}</span>
+        </div>
         <div className="flex gap-2">
           <a href={`/p/${slug}`} target="_blank" rel="noopener noreferrer"
             className="flex-1 text-sm font-bold bg-white text-indigo-700 rounded-xl px-3 py-2 hover:bg-indigo-50 transition-colors text-center">
-            Preview →
+            Open →
           </a>
           <button
-            onClick={() => { void navigator.clipboard.writeText(`${window.location.origin}/p/${slug}`); }}
-            className="text-sm font-medium text-white/80 bg-white/20 rounded-xl px-3 py-2 hover:bg-white/30 transition-colors"
-            title="Copy link"
+            onClick={copyLink}
+            className="text-sm font-medium text-white bg-white/20 rounded-xl px-3 py-2 hover:bg-white/30 transition-colors min-w-[70px]"
           >
-            Copy
+            {copied ? "Copied ✓" : "Copy link"}
           </button>
         </div>
       </div>

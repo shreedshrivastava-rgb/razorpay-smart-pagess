@@ -20,6 +20,8 @@ const demoPage: PageSchema = {
   },
   template: "modern",
   pageType: "workshop",
+  maxQuantity: 1,
+  isPreOrder: false,
   sections: [
     {
       id: "s1",
