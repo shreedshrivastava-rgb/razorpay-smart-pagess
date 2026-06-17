@@ -363,6 +363,11 @@ export async function POST(req: NextRequest) {
         (mergedContext as Record<string, unknown>)[k] = v;
       }
     }
+    // Hard cap: never accumulate more than 100 collection products to avoid token exhaustion
+    const MAX_COLLECTION_PRODUCTS = 100;
+    if (mergedContext.collectionProducts && mergedContext.collectionProducts.length > MAX_COLLECTION_PRODUCTS) {
+      mergedContext.collectionProducts = mergedContext.collectionProducts.slice(0, MAX_COLLECTION_PRODUCTS);
+    }
 
     return NextResponse.json({
       reply: parsed.reply,
