@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProductGridSection, Brand, ProductGridItem } from "@/lib/schema/page-schema";
 import { formatCurrency, cn } from "@/lib/utils";
 
@@ -178,6 +178,15 @@ function CheckoutModal({
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const firstFocusRef = useRef<HTMLInputElement>(null);
+
+  // Trap focus and handle Escape key when modal is open
+  useEffect(() => {
+    firstFocusRef.current?.focus();
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const isDemoKey =
     IS_DEMO_MODE ||
@@ -265,6 +274,9 @@ function CheckoutModal({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Checkout for ${item.name}`}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
@@ -297,7 +309,7 @@ function CheckoutModal({
               🧪 Demo mode — no real charge
             </p>
           )}
-          <ModalField label="Full Name *" type="text" value={name} onChange={setName} placeholder="Priya Sharma" brand={brand} />
+          <ModalField label="Full Name *" type="text" value={name} onChange={setName} placeholder="Priya Sharma" brand={brand} inputRef={firstFocusRef} />
           <ModalField label="Email *" type="email" value={email} onChange={setEmail} placeholder="priya@example.com" brand={brand} />
           <ModalField label="Phone" type="tel" value={phone} onChange={setPhone} placeholder="+91 98765 43210" brand={brand} />
 
@@ -330,10 +342,11 @@ function CheckoutModal({
 }
 
 function ModalField({
-  label, type, value, onChange, placeholder, brand,
+  label, type, value, onChange, placeholder, brand, inputRef,
 }: {
   label: string; type: string; value: string;
   onChange: (v: string) => void; placeholder: string; brand: Brand;
+  inputRef?: React.RefObject<HTMLInputElement>;
 }) {
   return (
     <div>
@@ -341,6 +354,7 @@ function ModalField({
         {label}
       </label>
       <input
+        ref={inputRef}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
