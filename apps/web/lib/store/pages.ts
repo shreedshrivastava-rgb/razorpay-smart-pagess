@@ -182,11 +182,15 @@ export async function deletePage(slug: string): Promise<void> {
 
 export async function updatePage(
   slug: string,
-  updates: Partial<PageSchema>
+  updates: Partial<PageSchema>,
+  expectedUpdatedAt?: string
 ): Promise<PageSchema | null> {
   if (blobAvailable()) {
     const page = await blobGet(slug);
     if (!page) return null;
+    if (expectedUpdatedAt && page.updatedAt !== expectedUpdatedAt) {
+      throw new Error("Conflict: page was modified by another request. Refresh and try again.");
+    }
     const updated = { ...page, ...updates, updatedAt: new Date().toISOString() };
     await blobSave(updated);
     return updated;
@@ -194,6 +198,9 @@ export async function updatePage(
   return withLock(async () => {
     const pages = await readPages();
     if (!pages[slug]) return null;
+    if (expectedUpdatedAt && pages[slug].updatedAt !== expectedUpdatedAt) {
+      throw new Error("Conflict: page was modified by another request. Refresh and try again.");
+    }
     pages[slug] = { ...pages[slug], ...updates, updatedAt: new Date().toISOString() };
     await writePages(pages);
     return pages[slug];
