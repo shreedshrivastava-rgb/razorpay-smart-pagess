@@ -341,7 +341,9 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
       if (digits.length < 7 || digits.length > 15) return "Please enter a valid phone number (7–15 digits).";
     }
     for (const v of page.variants ?? []) {
-      if (!selectedVariants[v.label]) return `Please select a ${v.label}.`;
+      const chosen = selectedVariants[v.label];
+      if (!chosen) return `Please select a ${v.label}.`;
+      if (!v.options.includes(chosen)) return `Invalid ${v.label} selection. Please choose again.`;
     }
     for (const f of payment.customFields ?? []) {
       if (f.required && !customFieldValues[f.label]?.trim()) return `"${f.label}" is required.`;
