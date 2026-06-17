@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 
 interface Props {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }
 
 async function ensureDemoPage(slug: string) {
@@ -44,12 +45,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function PublicPage({ params }: Props) {
+export default async function PublicPage({ params, searchParams }: Props) {
   const { slug } = await params;
+  const { edit } = await searchParams;
   await ensureDemoPage(slug);
   const page = await getPage(slug);
 
   if (!page) notFound();
 
-  return <PageRenderer page={page} />;
+  return <PageRenderer page={page} editToken={edit} />;
 }

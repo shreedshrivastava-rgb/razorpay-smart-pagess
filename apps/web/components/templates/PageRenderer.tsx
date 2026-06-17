@@ -4,10 +4,14 @@ import type { PageSchema, Section, Brand, Payment } from "@/lib/schema/page-sche
 import { SectionRenderer } from "@/components/blocks/SectionRenderer";
 import { formatCurrency, cn } from "@/lib/utils";
 import { useState } from "react";
+import { CartProvider, useCart } from "@/components/cart/CartContext";
+import { CartDrawer } from "@/components/cart/CartDrawer";
+import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
 
 interface PageRendererProps {
   page: PageSchema;
   isPreview?: boolean;
+  editToken?: string;
 }
 
 function sanitizeHexColor(color: string | undefined, fallback: string): string {
@@ -15,7 +19,8 @@ function sanitizeHexColor(color: string | undefined, fallback: string): string {
   return fallback;
 }
 
-export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
+export function PageRenderer({ page, isPreview = false, editToken }: PageRendererProps) {
+  const editMode = Boolean(editToken && editToken === page.id);
   const { brand, sections, payment } = page;
 
   const primaryColor = sanitizeHexColor(brand.primaryColor, "#6366f1");
@@ -64,25 +69,31 @@ export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
     );
   }
 
-  // ── Collection page: multi-product grid, no single payment sidebar ──
+  // ── Collection page: multi-product grid with cart, optional edit mode ──
   if (page.pageType === "collection") {
     return (
-      <div className={wrapper} style={brandStyle}>
-        <CheckoutNav brand={brand} payment={payment} />
-        <CollectionHero brand={brand} payment={payment} />
-        <div className="bg-white">
-          {sections.map((section) => (
-            <SectionRenderer
-              key={section.id}
-              section={section}
-              brand={brand}
-              onCtaClick={() => {}}
-              razorpayKeyId={payment.razorpayKeyId}
-            />
-          ))}
-        </div>
-        <CheckoutFooter brand={brand} />
-      </div>
+      <EditModeProvider enabled={editMode}>
+        <CartProvider>
+          <div className={wrapper} style={brandStyle}>
+            {editMode && <EditBar page={page} />}
+            <CollectionNav brand={brand} />
+            <CollectionHero brand={brand} payment={payment} page={page} />
+            <div id="products" className="bg-white">
+              {sections.map((section) => (
+                <SectionRenderer
+                  key={section.id}
+                  section={section}
+                  brand={brand}
+                  onCtaClick={() => {}}
+                  razorpayKeyId={payment.razorpayKeyId}
+                />
+              ))}
+            </div>
+            <CheckoutFooter brand={brand} />
+            <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
+          </div>
+        </CartProvider>
+      </EditModeProvider>
     );
   }
 
@@ -962,32 +973,165 @@ function LandingHero({ page, brand, payment }: { page: PageSchema; brand: Brand;
   );
 }
 
-// ─── Collection page hero (full-width, CTA scrolls to products) ───
-function CollectionHero({ brand, payment }: { brand: Brand; payment: Payment }) {
+// ─── Collection nav (sticky, with cart button) ───────────────────
+function CollectionNav({ brand }: { brand: Brand }) {
+  const { count, open } = useCart();
+  return (
+    <header className="bg-white/95 backdrop-blur-sm border-b border-black/[0.07] sticky top-0 z-40">
+      <div className="container mx-auto px-5 max-w-6xl h-14 flex items-center justify-between">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {brand.logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={brand.logo} alt={brand.name} className="h-7 w-auto object-contain" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          ) : (
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-extrabold text-xs shrink-0" style={{ backgroundColor: brand.primaryColor }}>
+              {brand.name[0]}
+            </div>
+          )}
+          <span className="font-bold text-gray-900 text-sm tracking-tight truncate">{brand.name}</span>
+        </div>
+        <button
+          onClick={open}
+          className="relative flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-semibold transition-all hover:shadow-md"
+          style={{ borderColor: brand.primaryColor, color: brand.primaryColor }}
+          aria-label={`Open cart, ${count} item${count !== 1 ? "s" : ""}`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+          </svg>
+          {count > 0 ? `Bag (${count})` : "Bag"}
+          {count > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-white text-[10px] font-extrabold flex items-center justify-center" style={{ backgroundColor: brand.primaryColor }}>
+              {count}
+            </span>
+          )}
+        </button>
+      </div>
+    </header>
+  );
+}
+
+// ─── Edit mode floating bar ───────────────────────────────────────
+function EditBar({ page }: { page: PageSchema }) {
+  const { fields, saving, setSaving, saveError, setSaveError } = useEditMode();
+  const hasChanges = Object.keys(fields).length > 0;
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveError("");
+    try {
+      // Build updated page by applying field changes
+      const updated = JSON.parse(JSON.stringify(page)) as PageSchema;
+      for (const [path, value] of Object.entries(fields)) {
+        const parts = path.split(".");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let obj: any = updated;
+        for (let i = 0; i < parts.length - 1; i++) { obj = obj[parts[i]]; if (!obj) break; }
+        if (obj) obj[parts[parts.length - 1]] = value;
+      }
+      const res = await fetch(`/api/pages/${page.slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      window.location.reload();
+    } catch {
+      setSaveError("Couldn't save. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="sticky top-0 z-50 bg-indigo-600 text-white px-4 py-2.5 flex items-center justify-between gap-3 shadow-lg">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-lg">✏</span>
+        <span className="font-semibold">Edit mode</span>
+        {hasChanges && <span className="text-indigo-200 text-xs">· {Object.keys(fields).length} unsaved change{Object.keys(fields).length > 1 ? "s" : ""}</span>}
+      </div>
+      <div className="flex items-center gap-2">
+        {saveError && <span className="text-red-300 text-xs">{saveError}</span>}
+        <button
+          onClick={() => window.location.href = window.location.pathname}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/20 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+          className="px-4 py-1.5 rounded-lg text-xs font-bold bg-white text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save changes"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Collection page hero (full-width gradient banner) ────────────
+function CollectionHero({ brand, payment, page }: { brand: Brand; payment: Payment; page: PageSchema }) {
+  const { editMode, fields, setField } = useEditMode();
+  const heroName = fields["brand.name"] ?? brand.name;
+  const heroDesc = fields["payment.description"] ?? payment.description;
+  const bannerImage = page.productImageUrl;
+
   return (
     <section
-      className="py-16 md:py-20 text-center"
+      className="relative py-16 md:py-24 text-center overflow-hidden"
       style={{
-        background: `radial-gradient(ellipse 80% 60% at 50% -10%, ${brand.primaryColor}18 0%, transparent 70%), #fff`,
+        background: bannerImage
+          ? `linear-gradient(to bottom, ${brand.primaryColor}cc, ${brand.primaryColor}99)`
+          : `linear-gradient(135deg, ${brand.primaryColor} 0%, ${brand.secondaryColor ?? "#0f172a"} 100%)`,
       }}
     >
-      <div className="container mx-auto px-4 max-w-3xl">
+      {/* Background image overlay */}
+      {bannerImage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={bannerImage}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-30"
+        />
+      )}
+      {/* Noise texture */}
+      <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }} />
+
+      <div className="relative container mx-auto px-4 max-w-3xl">
         {brand.logo && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={brand.logo} alt={brand.name} className="h-10 mx-auto mb-5 object-contain" />
+          <img src={brand.logo} alt={brand.name} className="h-10 mx-auto mb-6 object-contain" />
         )}
-        <h1 className="text-4xl md:text-5xl font-extrabold text-gray-900 leading-tight tracking-tight mb-4">
-          {brand.name}
-        </h1>
-        {payment.description && (
-          <p className="text-lg text-gray-500 leading-relaxed mb-8 max-w-xl mx-auto">
-            {payment.description}
-          </p>
+        {editMode ? (
+          <input
+            value={heroName}
+            onChange={(e) => setField("brand.name", e.target.value)}
+            className="text-4xl md:text-5xl font-extrabold text-white leading-tight tracking-tight mb-4 bg-transparent border-b-2 border-white/50 focus:border-white outline-none text-center w-full"
+          />
+        ) : (
+          <h1 className="text-4xl md:text-5xl font-extrabold text-white leading-tight tracking-tight mb-4">
+            {heroName}
+          </h1>
+        )}
+        {(heroDesc || editMode) && (
+          editMode ? (
+            <textarea
+              value={heroDesc ?? ""}
+              onChange={(e) => setField("payment.description", e.target.value)}
+              placeholder="Add a tagline…"
+              rows={2}
+              className="text-lg text-white/80 leading-relaxed mb-8 max-w-xl mx-auto bg-transparent border-b border-white/30 focus:border-white/70 outline-none text-center w-full resize-none"
+            />
+          ) : (
+            <p className="text-lg text-white/80 leading-relaxed mb-8 max-w-xl mx-auto">{heroDesc}</p>
+          )
         )}
         <a
           href="#products"
-          className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full text-white font-bold text-base hover:opacity-90 transition-opacity"
-          style={{ backgroundColor: brand.primaryColor }}
+          className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold text-base transition-all hover:scale-105 bg-white"
+          style={{ color: brand.primaryColor }}
         >
           Browse collection
           <span aria-hidden="true">↓</span>

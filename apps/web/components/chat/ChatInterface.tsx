@@ -175,13 +175,16 @@ export function ChatInterface() {
         body: JSON.stringify(buildWizardInput(ctx)),
       });
       if (!res.ok) throw new Error("Generation failed");
-      const json = await res.json() as { data?: { slug?: string } };
+      const json = await res.json() as { data?: { slug?: string; id?: string } };
       const slug = json.data?.slug;
+      const pageId = json.data?.id;
       if (slug) {
         setGeneratedSlug(slug);
         setPreviewVersion(0);
-        const pageUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/p/${slug}`;
-        const preview = `Your page is live! 🔗 ${pageUrl}`;
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
+        const pageUrl = `${origin}/p/${slug}`;
+        const editUrl = pageId ? `${origin}/p/${slug}?edit=${pageId}` : null;
+        const preview = `Your page is live! 🔗 ${pageUrl}${editUrl ? `\n✏ Edit anytime: ${editUrl}` : ""}`;
         addMessage({ role: "assistant", content: preview });
         addMessage({ role: "preview", content: "", previewSlug: slug, previewVersion: 0 });
         void speak("Your page is live! The link is ready to share.");

@@ -24,22 +24,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Razorpay keys not configured" }, { status: 503 });
   }
 
-  let body: { amount: number; currency?: string; receipt?: string; slug?: string };
+  let body: { amount: number; currency?: string; receipt?: string; slug?: string; isCart?: boolean };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { amount, currency = "INR", receipt, slug } = body;
+  const { amount, currency = "INR", receipt, slug, isCart } = body;
 
   if (!amount || amount <= 0) {
     return NextResponse.json({ error: "amount must be a positive integer (paise)" }, { status: 400 });
   }
 
-  // Server-side amount guard: if a page slug is provided, ensure the amount is not
-  // greater than the page's listed price (prevents client-side price manipulation)
-  if (slug) {
+  // Server-side amount guard: if a page slug is provided and this is NOT a cart order,
+  // ensure the amount is not greater than the page's listed price.
+  if (slug && !isCart) {
     try {
       const page = await getPage(slug);
       if (page && page.payment.amount > 0) {
