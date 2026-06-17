@@ -25,11 +25,21 @@ async function blobSave(page: PageSchema): Promise<void> {
   });
 }
 
+async function readStream(stream: ReadableStream): Promise<string> {
+  const text = await Promise.race([
+    new Response(stream).text(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Blob stream read timed out after 10s")), 10_000)
+    ),
+  ]);
+  return text;
+}
+
 async function blobGet(slug: string): Promise<PageSchema | null> {
   const { get } = await import("@vercel/blob");
   const result = await get(`pages/${slug}.json`, { access: "private" });
   if (!result) return null;
-  const text = await new Response(result.stream).text();
+  const text = await readStream(result.stream);
   return JSON.parse(text) as PageSchema;
 }
 
@@ -41,7 +51,7 @@ async function blobGetAll(): Promise<PageSchema[]> {
       try {
         const result = await get(blob.pathname, { access: "private" });
         if (!result) return null;
-        const text = await new Response(result.stream).text();
+        const text = await readStream(result.stream);
         return JSON.parse(text) as PageSchema;
       } catch {
         return null;

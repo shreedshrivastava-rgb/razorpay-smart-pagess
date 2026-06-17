@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
       const result = await get("debug/test.json", { access: "private" });
       if (result) {
-        const text = await new Response(result.stream).text();
+        const text = await Promise.race([new Response(result.stream).text(), new Promise<never>((_, r) => setTimeout(() => r(new Error("timeout")), 10_000))]);
         const data = JSON.parse(text) as { ts: number };
         readResult = { ok: true, tsMatch: data.ts === ts };
       } else {
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
         // Try direct get
         const getResult = await get(pathname, { access: "private" });
         if (getResult) {
-          const text = await new Response(getResult.stream).text();
+          const text = await Promise.race([new Response(getResult.stream).text(), new Promise<never>((_, r) => setTimeout(() => r(new Error("timeout")), 10_000))]);
           slugRead = { method: "get", ok: true, dataLength: text.length, preview: text.slice(0, 100) };
         } else {
           // Fallback: try listing to see if blob exists
