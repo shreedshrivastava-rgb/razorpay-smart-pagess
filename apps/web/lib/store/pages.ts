@@ -2,17 +2,78 @@ import { writeFile, readFile, mkdir } from "fs/promises";
 import path from "path";
 import type { PageSchema } from "@/lib/schema/page-schema";
 
-// Vercel's serverless runtime has a read-only filesystem except for /tmp
+// ─── Vercel Blob storage ──────────────────────────────────────────────────────
+// When BLOB_READ_WRITE_TOKEN is set (Blob store connected), pages are stored as
+// JSON objects in Blob. Falls back to in-memory + /tmp for local dev.
+
+function blobAvailable() {
+  // BLOB_READ_WRITE_TOKEN: manual token (local dev / explicit setup)
+  // VERCEL_OIDC_TOKEN + BLOB_STORE_ID: auto-injected by Vercel at runtime (production)
+  return Boolean(
+    process.env.BLOB_READ_WRITE_TOKEN ||
+    (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID)
+  );
+}
+
+async function blobSave(page: PageSchema): Promise<void> {
+  const { put } = await import("@vercel/blob");
+  await put(`pages/${page.slug}.json`, JSON.stringify(page), {
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "application/json",
+  });
+}
+
+async function blobGet(slug: string): Promise<PageSchema | null> {
+  const { get } = await import("@vercel/blob");
+  const result = await get(`pages/${slug}.json`, { access: "private" });
+  if (!result) return null;
+  const text = await new Response(result.stream).text();
+  return JSON.parse(text) as PageSchema;
+}
+
+async function blobGetAll(): Promise<PageSchema[]> {
+  const { list, get } = await import("@vercel/blob");
+  const { blobs } = await list({ prefix: "pages/" });
+  const pages = await Promise.all(
+    blobs.map(async (blob) => {
+      try {
+        const result = await get(blob.pathname, { access: "private" });
+        if (!result) return null;
+        const text = await new Response(result.stream).text();
+        return JSON.parse(text) as PageSchema;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return (pages.filter(Boolean) as PageSchema[]).sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+}
+
+async function blobDelete(slug: string): Promise<void> {
+  const { list, del } = await import("@vercel/blob");
+  const { blobs } = await list({ prefix: `pages/${slug}.json` });
+  const blob = blobs.find((b) => b.pathname === `pages/${slug}.json`);
+  if (blob) await del(blob.url);
+}
+
+async function blobSlugExists(slug: string, excludeId?: string): Promise<boolean> {
+  const page = await blobGet(slug);
+  if (!page) return false;
+  return page.id !== excludeId;
+}
+
+// ─── File / memory fallback ───────────────────────────────────────────────────
+
 const DATA_DIR = process.env.VERCEL
   ? "/tmp/.smart-pages-data"
   : path.join(process.cwd(), ".data");
 const PAGES_FILE = path.join(DATA_DIR, "pages.json");
-
-// Module-level cache — survives across warm Lambda invocations within the same container.
-// This is the primary store on Vercel; the /tmp file is a secondary persistence layer.
 const memCache: Record<string, PageSchema> = {};
 
-// Prevent concurrent reads+writes from corrupting pages.json
 let writeLock: Promise<void> = Promise.resolve();
 function withLock<T>(fn: () => Promise<T>): Promise<T> {
   let release!: () => void;
@@ -26,7 +87,6 @@ async function ensureDataDir() {
 }
 
 async function readPages(): Promise<Record<string, PageSchema>> {
-  // In-memory cache is always up-to-date within this container
   if (Object.keys(memCache).length > 0) return memCache;
   try {
     const content = await readFile(PAGES_FILE, "utf-8");
@@ -39,7 +99,6 @@ async function readPages(): Promise<Record<string, PageSchema>> {
 }
 
 async function writePages(pages: Record<string, PageSchema>) {
-  // Always update in-memory first so reads in the same container are instant
   Object.assign(memCache, pages);
   try {
     await ensureDataDir();
@@ -47,12 +106,16 @@ async function writePages(pages: Record<string, PageSchema>) {
     await writeFile(tmp, JSON.stringify(pages, null, 2), "utf-8");
     const { rename } = await import("fs/promises");
     await rename(tmp, PAGES_FILE);
-  } catch {
-    // /tmp write failure is non-fatal — in-memory cache still serves this container
-  }
+  } catch { /* non-fatal */ }
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 export async function savePage(page: PageSchema): Promise<void> {
+  if (blobAvailable()) {
+    await blobSave(page);
+    return;
+  }
   return withLock(async () => {
     const pages = await readPages();
     pages[page.slug] = page;
@@ -60,8 +123,13 @@ export async function savePage(page: PageSchema): Promise<void> {
   });
 }
 
-/** Returns a slug guaranteed not to collide with any existing page (except the one with excludeId). */
 export async function ensureUniqueSlug(slug: string, excludeId?: string): Promise<string> {
+  if (blobAvailable()) {
+    if (!(await blobSlugExists(slug, excludeId))) return slug;
+    let counter = 2;
+    while (await blobSlugExists(`${slug}-${counter}`, excludeId)) counter++;
+    return `${slug}-${counter}`;
+  }
   const pages = await readPages();
   if (!pages[slug] || pages[slug].id === excludeId) return slug;
   let counter = 2;
@@ -70,11 +138,13 @@ export async function ensureUniqueSlug(slug: string, excludeId?: string): Promis
 }
 
 export async function getPage(slug: string): Promise<PageSchema | null> {
+  if (blobAvailable()) return blobGet(slug);
   const pages = await readPages();
   return pages[slug] || null;
 }
 
 export async function getAllPages(): Promise<PageSchema[]> {
+  if (blobAvailable()) return blobGetAll();
   const pages = await readPages();
   return Object.values(pages).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -82,6 +152,10 @@ export async function getAllPages(): Promise<PageSchema[]> {
 }
 
 export async function deletePage(slug: string): Promise<void> {
+  if (blobAvailable()) {
+    await blobDelete(slug);
+    return;
+  }
   return withLock(async () => {
     const pages = await readPages();
     delete pages[slug];
@@ -94,6 +168,13 @@ export async function updatePage(
   slug: string,
   updates: Partial<PageSchema>
 ): Promise<PageSchema | null> {
+  if (blobAvailable()) {
+    const page = await blobGet(slug);
+    if (!page) return null;
+    const updated = { ...page, ...updates, updatedAt: new Date().toISOString() };
+    await blobSave(updated);
+    return updated;
+  }
   return withLock(async () => {
     const pages = await readPages();
     if (!pages[slug]) return null;
