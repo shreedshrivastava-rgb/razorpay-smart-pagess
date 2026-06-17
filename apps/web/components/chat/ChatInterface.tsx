@@ -297,6 +297,11 @@ export function ChatInterface() {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+    const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
+    if (file.size > MAX_FILE_BYTES) {
+      setError("Image is too large. Please use a photo under 20 MB.");
+      return;
+    }
     setUploadingImage(true);
     try {
       const dataUrl = await processImageFile(file);
