@@ -11,6 +11,17 @@ function checkDeleteRateLimit(ip: string): boolean {
   return true;
 }
 
+function checkCsrf(req: NextRequest): boolean {
+  const origin = req.headers.get("origin");
+  const host = req.headers.get("host");
+  if (!origin || !host) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -25,6 +36,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!checkCsrf(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const { id } = await params;
   const updates = await req.json();
   const page = await updatePage(id, updates);
@@ -36,6 +50,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!checkCsrf(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   if (!checkDeleteRateLimit(ip)) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
