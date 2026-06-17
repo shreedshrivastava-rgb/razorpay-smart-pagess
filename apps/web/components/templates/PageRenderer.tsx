@@ -10,13 +10,22 @@ interface PageRendererProps {
   isPreview?: boolean;
 }
 
+function sanitizeHexColor(color: string | undefined, fallback: string): string {
+  if (color && /^#[0-9A-Fa-f]{3}$|^#[0-9A-Fa-f]{6}$/.test(color)) return color;
+  return fallback;
+}
+
 export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
   const { brand, sections, payment } = page;
 
+  const primaryColor = sanitizeHexColor(brand.primaryColor, "#6366f1");
+  const secondaryColor = sanitizeHexColor(brand.secondaryColor, "#0f172a");
+  const accentColor = sanitizeHexColor(brand.accentColor, primaryColor);
+
   const brandStyle = {
-    "--brand-primary": brand.primaryColor,
-    "--brand-secondary": brand.secondaryColor,
-    "--brand-accent": brand.accentColor || brand.primaryColor,
+    "--brand-primary": primaryColor,
+    "--brand-secondary": secondaryColor,
+    "--brand-accent": accentColor,
     fontFamily: "var(--font-jakarta), var(--font-inter), system-ui, sans-serif",
   } as React.CSSProperties;
 
