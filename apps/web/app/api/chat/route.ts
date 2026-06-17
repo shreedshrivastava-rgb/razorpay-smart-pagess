@@ -60,8 +60,10 @@ interface ChatResponse {
 // ─── Azure config ─────────────────────────────────────────────────────────────
 
 function getAzureConfig() {
-  const key = process.env.AI_API_KEY!;
+  const key = process.env.AI_API_KEY;
+  if (!key) throw new Error("AI_API_KEY environment variable is not configured");
   const base = (process.env.AI_BASE_URL ?? "").replace(/\/$/, "");
+  if (!base) throw new Error("AI_BASE_URL environment variable is not configured");
   const model = process.env.AI_MODEL ?? "claude-sonnet-4-6";
   const endpoint = base.endsWith("/anthropic")
     ? `${base}/v1/messages`

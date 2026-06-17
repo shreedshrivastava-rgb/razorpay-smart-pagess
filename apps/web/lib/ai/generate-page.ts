@@ -5,8 +5,10 @@ import { generateId, slugify } from "@/lib/utils";
 // Uses plain fetch so Next.js cannot intercept or modify headers.
 // Endpoint confirmed working via: POST /anthropic/v1/messages  (x-api-key header)
 function getAzureConfig() {
-  const key = process.env.AI_API_KEY!;
+  const key = process.env.AI_API_KEY;
+  if (!key) throw new Error("AI_API_KEY environment variable is not configured");
   const base = (process.env.AI_BASE_URL ?? "").replace(/\/$/, "");
+  if (!base) throw new Error("AI_BASE_URL environment variable is not configured");
   const model = process.env.AI_MODEL ?? "claude-sonnet-4-6";
   // base may already contain /anthropic — normalise to always end with /anthropic
   const endpoint = base.endsWith("/anthropic")
