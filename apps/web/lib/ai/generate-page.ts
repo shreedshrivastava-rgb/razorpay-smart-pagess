@@ -151,8 +151,9 @@ export async function buildFullPage(input: WizardInput): Promise<PageSchema> {
   if (input.pageType === "collection" && input.collectionProducts?.length) {
     const gridSection = page.sections.find((s) => s.type === "product-grid");
     if (gridSection && gridSection.type === "product-grid") {
+      const collectionProducts = input.collectionProducts;
       gridSection.items = gridSection.items.map((item, i) => {
-        const src = input.collectionProducts![i];
+        const src = collectionProducts[i];
         if (!src) return item;
         return {
           ...item,
