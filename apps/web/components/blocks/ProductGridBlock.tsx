@@ -218,8 +218,9 @@ function CheckoutModal({
         await new Promise<void>((resolve, reject) => {
           const s = document.createElement("script");
           s.src = "https://checkout.razorpay.com/v1/checkout.js";
-          s.onload = () => resolve();
-          s.onerror = () => reject(new Error("Failed to load payment SDK"));
+          const timer = setTimeout(() => reject(new Error("Payment SDK took too long to load. Check your connection and try again.")), 10_000);
+          s.onload = () => { clearTimeout(timer); resolve(); };
+          s.onerror = () => { clearTimeout(timer); reject(new Error("Could not load payment SDK. Please check your internet connection.")); };
           document.head.appendChild(s);
         });
       }
