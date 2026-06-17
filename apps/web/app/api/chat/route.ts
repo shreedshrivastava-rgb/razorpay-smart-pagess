@@ -294,6 +294,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "messages required" }, { status: 400 });
   }
 
+  const reqId = Math.random().toString(36).slice(2, 10).toUpperCase();
+
   const { key, endpoint, model } = getAzureConfig();
 
   // Include current context in the user message so AI knows what's been gathered
@@ -332,7 +334,7 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("AI API error:", res.status, errText);
+      console.error(`[${reqId}] AI API error:`, res.status, errText);
       return NextResponse.json({ error: `AI error: ${res.status}` }, { status: 500 });
     }
 
@@ -348,7 +350,7 @@ export async function POST(req: NextRequest) {
       parsed = candidate;
     } catch {
       // Response may be truncated — retry once asking for compact JSON
-      console.error("Chat JSON parse error, retrying. Raw:", rawText.slice(0, 300));
+      console.error(`[${reqId}] Chat JSON parse error, retrying. Raw:`, rawText.slice(0, 300));
       const retryRes = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
@@ -394,7 +396,7 @@ export async function POST(req: NextRequest) {
       photoMapping: parsed.photoMapping ?? null,
     });
   } catch (err) {
-    console.error("Chat API error:", err);
+    console.error(`[${reqId}] Chat API error:`, err);
     // Return a valid 200 response so the UI never crashes — user sees a friendly retry message
     return NextResponse.json({
       reply: "I ran into a hiccup processing that. Could you rephrase, or if you're adding many products, try listing fewer at once?",

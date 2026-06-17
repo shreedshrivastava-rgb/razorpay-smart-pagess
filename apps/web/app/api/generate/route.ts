@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Too many requests. Try again in a minute." }, { status: 429 });
   }
 
+  const reqId = Math.random().toString(36).slice(2, 10).toUpperCase();
   try {
     const body = await req.json() as WizardInput & { existingSlug?: string };
     const { existingSlug, ...input } = body;
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, data: page });
   } catch (error) {
-    console.error("Generation error:", error);
+    console.error(`[${reqId}] Generation error:`, error);
     const message = error instanceof Error ? error.message : "Generation failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
