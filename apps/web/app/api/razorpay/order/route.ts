@@ -65,8 +65,14 @@ export async function POST(req: NextRequest) {
   });
 
   if (!rzpRes.ok) {
-    const err = await rzpRes.text();
-    return NextResponse.json({ error: err }, { status: rzpRes.status });
+    const rawErr = await rzpRes.text();
+    console.error("Razorpay order error:", rzpRes.status, rawErr.slice(0, 300));
+    let userMessage = "Order creation failed. Please try again.";
+    try {
+      const parsed = JSON.parse(rawErr) as { error?: { description?: string } };
+      if (parsed.error?.description) userMessage = parsed.error.description;
+    } catch { /* raw text, not JSON */ }
+    return NextResponse.json({ error: userMessage }, { status: rzpRes.status });
   }
 
   const order = await rzpRes.json();
