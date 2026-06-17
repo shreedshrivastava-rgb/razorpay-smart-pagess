@@ -42,6 +42,7 @@ async function callModel(prompt: string, retriesLeft = 1): Promise<string> {
         messages: [{ role: "user", content: prompt }],
       }),
       cache: "no-store",
+      signal: AbortSignal.timeout(25_000),
     });
   } catch (networkErr) {
     if (retriesLeft > 0) {

@@ -316,6 +316,7 @@ export async function POST(req: NextRequest) {
         messages: messagesWithContext,
       }),
       cache: "no-store",
+      signal: AbortSignal.timeout(25_000),
     });
 
     if (!res.ok) {
@@ -349,6 +350,7 @@ export async function POST(req: NextRequest) {
           ],
         }),
         cache: "no-store",
+        signal: AbortSignal.timeout(25_000),
       });
       if (!retryRes.ok) throw new Error(`AI retry error: ${retryRes.status}`);
       const retryJson = await retryRes.json() as { content: Array<{ type: string; text: string }> };
