@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPage, updatePage, deletePage } from "@/lib/store/pages";
 
+const deleteRateLimit = new Map<string, { count: number; resetAt: number }>();
+function checkDeleteRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = deleteRateLimit.get(ip);
+  if (!entry || now > entry.resetAt) { deleteRateLimit.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,9 +33,13 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  if (!checkDeleteRateLimit(ip)) {
+    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
   const { id } = await params;
   await deletePage(id);
   return NextResponse.json({ success: true });

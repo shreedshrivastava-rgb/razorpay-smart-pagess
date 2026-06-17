@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPage } from "@/lib/store/pages";
 
+const orderRateLimit = new Map<string, { count: number; resetAt: number }>();
+function checkOrderRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = orderRateLimit.get(ip);
+  if (!entry || now > entry.resetAt) { orderRateLimit.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
+  if (entry.count >= 20) return false;
+  entry.count++;
+  return true;
+}
+
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  if (!checkOrderRateLimit(ip)) {
+    return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
+  }
+
   const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
