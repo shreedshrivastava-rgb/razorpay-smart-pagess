@@ -292,8 +292,10 @@ export function ChatInterface() {
         && (updatedCtx.collectionProducts?.some((p) => !p.imageUrl) ?? false)
         && json.action !== "generate"; // explicit "skip photos" path still goes through
 
-      if (json.action === "generate" && !stillNeedsPhotos) setTimeout(() => void triggerGenerate(updatedCtx), 600);
-      else if (json.action === "update" && generatedSlug && !stillNeedsPhotos) setTimeout(() => void triggerUpdate(updatedCtx, generatedSlug), 600);
+      if (!stillNeedsPhotos && (json.action === "generate" || json.action === "update")) {
+        if (generatedSlug) setTimeout(() => void triggerUpdate(updatedCtx, generatedSlug), 600);
+        else setTimeout(() => void triggerGenerate(updatedCtx), 600);
+      }
     } catch {
       setError("Something went wrong. Try again.");
     } finally {
