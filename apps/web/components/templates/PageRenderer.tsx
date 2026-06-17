@@ -364,6 +364,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
           amount: effectiveAmount,
           currency: payment.currency,
           receipt: `rcpt_${Date.now()}`,
+          slug: page.slug,
         }),
       });
       if (!orderRes.ok) {
