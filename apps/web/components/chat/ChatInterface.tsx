@@ -88,6 +88,7 @@ export function ChatInterface() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inflightRef = useRef(false);
   const restoredRef = useRef(false);
+  const storageWarnedRef = useRef(false);
 
   // Restore from sessionStorage
   useEffect(() => {
@@ -110,7 +111,21 @@ export function ChatInterface() {
   useEffect(() => {
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ messages, context, generatedSlug, previewVersion }));
-    } catch { /* quota */ }
+    } catch {
+      if (!storageWarnedRef.current) {
+        storageWarnedRef.current = true;
+        setError("Your browser storage is almost full — progress may not save on refresh.");
+      }
+      // Retry with only the last 10 messages to reduce size
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+          messages: messages.slice(-10),
+          context,
+          generatedSlug,
+          previewVersion,
+        }));
+      } catch { /* storage fully unavailable */ }
+    }
   }, [messages, context, generatedSlug, previewVersion]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, generating, pendingPhotoDataUrl]);
