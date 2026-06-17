@@ -99,7 +99,7 @@ export async function generatePageContent(input: WizardInput): Promise<Generated
 export async function buildFullPage(input: WizardInput): Promise<PageSchema> {
   const generated = await generatePageContent(input);
   const brandName = input.brand.name || input.extracted?.name || "My Page";
-  const slug = slugify(`${brandName}-${input.productName || "page"}`) || generateId("page");
+  const slug = slugify(brandName) || generateId("page");
 
   const page: PageSchema = {
     id: generateId("pg"),
