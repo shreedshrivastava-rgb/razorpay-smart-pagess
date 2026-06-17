@@ -126,6 +126,7 @@ async function writePages(pages: Record<string, PageSchema>) {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function savePage(page: PageSchema): Promise<void> {
+  console.log(`[audit] savePage slug="${page.slug}" id="${page.id}" at=${new Date().toISOString()}`);
   if (blobAvailable()) {
     await blobSave(page);
     return;
@@ -178,6 +179,7 @@ export async function getAllPages(): Promise<PageSchema[]> {
 }
 
 export async function deletePage(slug: string): Promise<void> {
+  console.log(`[audit] deletePage slug="${slug}" at=${new Date().toISOString()}`);
   if (blobAvailable()) {
     await blobDelete(slug);
     return;
