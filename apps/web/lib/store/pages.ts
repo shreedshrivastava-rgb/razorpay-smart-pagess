@@ -38,7 +38,7 @@ async function readStream(stream: ReadableStream): Promise<string> {
 async function blobGet(slug: string): Promise<PageSchema | null> {
   const { get } = await import("@vercel/blob");
   const result = await get(`pages/${slug}.json`, { access: "private" });
-  if (!result) return null;
+  if (!result?.stream) return null;
   const text = await readStream(result.stream);
   return JSON.parse(text) as PageSchema;
 }
@@ -50,7 +50,7 @@ async function blobGetAll(): Promise<PageSchema[]> {
     blobs.map(async (blob) => {
       try {
         const result = await get(blob.pathname, { access: "private" });
-        if (!result) return null;
+        if (!result?.stream) return null;
         const text = await readStream(result.stream);
         return JSON.parse(text) as PageSchema;
       } catch {

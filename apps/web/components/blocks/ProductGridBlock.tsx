@@ -346,7 +346,7 @@ function ModalField({
 }: {
   label: string; type: string; value: string;
   onChange: (v: string) => void; placeholder: string; brand: Brand;
-  inputRef?: React.RefObject<HTMLInputElement>;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
     <div>
