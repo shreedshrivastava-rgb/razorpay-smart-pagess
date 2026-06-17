@@ -177,7 +177,7 @@ export function ChatInterface() {
       if (slug) {
         setGeneratedSlug(slug);
         setPreviewVersion(0);
-        const pageUrl = `${window.location.origin}/p/${slug}`;
+        const pageUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/p/${slug}`;
         const preview = `Your page is live! 🔗 ${pageUrl}`;
         addMessage({ role: "assistant", content: preview });
         addMessage({ role: "preview", content: "", previewSlug: slug, previewVersion: 0 });
