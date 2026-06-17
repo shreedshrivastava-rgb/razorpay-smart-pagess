@@ -268,6 +268,17 @@ When generating, your reply MUST tell the merchant what you assumed:
 - Never null out a field that was previously filled — only update or keep it`;
 
 
+// ─── Runtime validation ───────────────────────────────────────────────────────
+
+function isValidChatResponse(obj: unknown): obj is ChatResponse {
+  if (!obj || typeof obj !== "object") return false;
+  const r = obj as Record<string, unknown>;
+  if (typeof r.reply !== "string" || !r.reply.trim()) return false;
+  if (!["ask", "generate", "update"].includes(r.action as string)) return false;
+  if (!r.context || typeof r.context !== "object" || Array.isArray(r.context)) return false;
+  return true;
+}
+
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -332,7 +343,9 @@ export async function POST(req: NextRequest) {
     let jsonText = rawText.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
     let parsed: ChatResponse;
     try {
-      parsed = JSON.parse(jsonText) as ChatResponse;
+      const candidate = JSON.parse(jsonText) as unknown;
+      if (!isValidChatResponse(candidate)) throw new Error("AI response failed structural validation");
+      parsed = candidate;
     } catch {
       // Response may be truncated — retry once asking for compact JSON
       console.error("Chat JSON parse error, retrying. Raw:", rawText.slice(0, 300));
@@ -355,8 +368,9 @@ export async function POST(req: NextRequest) {
       if (!retryRes.ok) throw new Error(`AI retry error: ${retryRes.status}`);
       const retryJson = await retryRes.json() as { content: Array<{ type: string; text: string }> };
       jsonText = (retryJson.content?.[0]?.text ?? "").replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-      // If retry also produces invalid JSON, fall through to the outer catch's graceful fallback
-      parsed = JSON.parse(jsonText) as ChatResponse;
+      const retryCandidate = JSON.parse(jsonText) as unknown;
+      if (!isValidChatResponse(retryCandidate)) throw new Error("AI retry response failed structural validation");
+      parsed = retryCandidate;
     }
 
 
