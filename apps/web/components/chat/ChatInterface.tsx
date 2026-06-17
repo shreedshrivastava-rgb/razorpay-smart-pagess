@@ -140,10 +140,7 @@ export function ChatInterface() {
               name: p.name,
               price: Math.round(p.price * 100),
               maxPrice: p.maxPrice ? Math.round(p.maxPrice * 100) : undefined,
-              description: p.description,
               imageUrl: p.imageUrl,
-              badge: p.badge,
-              bullets: p.bullets,
             })),
           }
         : {}),

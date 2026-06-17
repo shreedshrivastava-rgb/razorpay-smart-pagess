@@ -46,10 +46,7 @@ export interface ChatContext {
     name: string;
     price: number;     // rupees — minimum / starting price
     maxPrice?: number; // rupees — maximum price when sizes differ (e.g. 0.5kg ₹200 → 1.5kg ₹300)
-    description?: string;
-    imageUrl?: string;
-    badge?: string;
-    bullets?: string[];
+    imageUrl?: string; // set client-side only, never in AI response
   }>;
 }
 
@@ -113,7 +110,7 @@ You MUST respond ONLY with valid JSON in this exact format (no markdown, no extr
     "deliveryInfo": "string or null",
     "socialLinks": {"whatsapp": "string or null", "instagram": "string or null", "website": "string or null"} or null,
     "language": "string or null",
-    "collectionProducts": [{"name": "string", "price": number_in_rupees_min, "maxPrice": number_in_rupees_max_or_null, "description": "string or null", "badge": "string or null", "bullets": ["string"] or null}] or null
+    "collectionProducts": [{"name": "string", "price": number_in_rupees_min, "maxPrice": number_in_rupees_max_or_null}] or null
   },
   "action": "ask" | "generate" | "update"
 }
@@ -181,7 +178,7 @@ When merchant mentions multiple distinct products/varieties:
   → the card will display "₹200 – ₹300" automatically
 - When all sizes have the SAME price, set only price (no maxPrice needed)
 - Infer prices per product from category defaults above
-- Always populate all collectionProducts fields as best you can — don't leave things empty
+- Only include name, price, and maxPrice (if applicable) in each collectionProducts entry — descriptions and bullets are generated later during page creation, not here
 
 ━━━ BULLET INFERENCE (always generate, never leave null) ━━━
 Generate 3 compelling, specific, emotionally resonant bullets for the Indian market:
@@ -312,7 +309,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 2048,
+        max_tokens: 8192,
         system: CHAT_SYSTEM_PROMPT,
         messages: messagesWithContext,
       }),
@@ -329,14 +326,35 @@ export async function POST(req: NextRequest) {
     const rawText = json.content?.[0]?.text ?? "";
 
     // Parse the JSON response from the AI
-    const jsonText = rawText.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+    let jsonText = rawText.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
     let parsed: ChatResponse;
     try {
       parsed = JSON.parse(jsonText) as ChatResponse;
-    } catch (parseErr) {
-      console.error("Chat JSON parse error. Raw text:", rawText.slice(0, 500));
-      throw parseErr;
+    } catch {
+      // Response may be truncated — retry once asking for compact JSON
+      console.error("Chat JSON parse error, retrying. Raw:", rawText.slice(0, 300));
+      const retryRes = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 8192,
+          system: CHAT_SYSTEM_PROMPT,
+          messages: [
+            ...messagesWithContext,
+            { role: "assistant", content: rawText },
+            { role: "user", content: "Your JSON was truncated. Return ONLY the complete valid JSON object, no extra text. Keep collectionProducts concise." },
+          ],
+        }),
+        cache: "no-store",
+      });
+      if (!retryRes.ok) throw new Error(`AI retry error: ${retryRes.status}`);
+      const retryJson = await retryRes.json() as { content: Array<{ type: string; text: string }> };
+      jsonText = (retryJson.content?.[0]?.text ?? "").replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+      // If retry also produces invalid JSON, fall through to the outer catch's graceful fallback
+      parsed = JSON.parse(jsonText) as ChatResponse;
     }
+
 
     // Merge AI-returned context with existing context (AI context wins, but never clears existing fields)
     const mergedContext: ChatContext = { ...context };
@@ -354,10 +372,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("Chat API error:", err);
-    return NextResponse.json(
-      { error: "Failed to get AI response" },
-      { status: 500 }
-    );
+    // Return a valid 200 response so the UI never crashes — user sees a friendly retry message
+    return NextResponse.json({
+      reply: "I ran into a hiccup processing that. Could you rephrase, or if you're adding many products, try listing fewer at once?",
+      context,
+      action: "ask",
+      photoMapping: null,
+    });
   }
 }
 
@@ -394,8 +415,12 @@ function buildContextSummary(ctx: ChatContext): string {
   if (ctx.language) parts.push(`language=${ctx.language}`);
   if (ctx.collectionProducts?.length) {
     const withPhotos = ctx.collectionProducts.filter((p) => p.imageUrl).length;
-    const productList = ctx.collectionProducts.map((p) => `${p.name}@₹${p.price}${p.imageUrl ? "(photo✓)" : ""}`).join(", ");
-    parts.push(`collectionProducts=${ctx.collectionProducts.length}:[${productList}], productPhotos=${withPhotos}/${ctx.collectionProducts.length}`);
+    // Cap the inline list at 8 products to avoid oversized prompts; show count for larger collections
+    const cap = 8;
+    const shown = ctx.collectionProducts.slice(0, cap);
+    const productList = shown.map((p) => `${p.name}@₹${p.price}${p.imageUrl ? "(photo✓)" : ""}`).join(", ");
+    const overflow = ctx.collectionProducts.length > cap ? ` +${ctx.collectionProducts.length - cap} more` : "";
+    parts.push(`collectionProducts=${ctx.collectionProducts.length}:[${productList}${overflow}], productPhotos=${withPhotos}/${ctx.collectionProducts.length}`);
   }
   return parts.join(", ");
 }
