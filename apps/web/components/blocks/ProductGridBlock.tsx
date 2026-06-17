@@ -184,9 +184,10 @@ function CheckoutModal({
     razorpayKeyId === "rzp_test_placeholder" ||
     !razorpayKeyId;
 
+  const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
   async function handleBuy() {
     if (!name.trim()) { setError("Please enter your name."); return; }
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!email.trim() || !EMAIL_RE.test(email.trim())) {
       setError("Please enter a valid email."); return;
     }
     setError("");

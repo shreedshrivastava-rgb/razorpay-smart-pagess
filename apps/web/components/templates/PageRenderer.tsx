@@ -332,10 +332,14 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
     }
   }
 
+  const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
   function validateForm(): string {
     if (!name.trim()) return "Please enter your full name.";
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Please enter a valid email address.";
-    if (phone && !/^\+?[\d\s\-()]{7,15}$/.test(phone)) return "Please enter a valid phone number.";
+    if (!email.trim() || !EMAIL_RE.test(email.trim())) return "Please enter a valid email address.";
+    if (phone) {
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length < 7 || digits.length > 15) return "Please enter a valid phone number (7–15 digits).";
+    }
     for (const v of page.variants ?? []) {
       if (!selectedVariants[v.label]) return `Please select a ${v.label}.`;
     }
