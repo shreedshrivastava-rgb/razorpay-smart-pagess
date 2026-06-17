@@ -445,5 +445,7 @@ function buildContextSummary(ctx: ChatContext): string {
     const overflow = ctx.collectionProducts.length > cap ? ` +${ctx.collectionProducts.length - cap} more` : "";
     parts.push(`collectionProducts=${ctx.collectionProducts.length}:[${productList}${overflow}], productPhotos=${withPhotos}/${ctx.collectionProducts.length}`);
   }
-  return parts.join(", ");
+  const summary = parts.join(", ");
+  // Hard cap on the total summary length so long names/descriptions can't overflow the prompt
+  return summary.length > 2000 ? `${summary.slice(0, 2000)}…` : summary;
 }
