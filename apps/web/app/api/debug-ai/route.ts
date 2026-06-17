@@ -1,40 +1,74 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function GET() {
-  const key = process.env.AI_API_KEY ?? "(not set)";
-  const base = process.env.AI_BASE_URL ?? "(not set)";
-  const model = process.env.AI_MODEL ?? "(not set)";
+export async function GET(req: NextRequest) {
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+  const oidcToken = process.env.VERCEL_OIDC_TOKEN;
+  const storeId = process.env.BLOB_STORE_ID;
+  const isVercel = process.env.VERCEL;
+  const slug = req.nextUrl.searchParams.get("slug");
 
-  const endpoint = base.replace(/\/$/, "").endsWith("/anthropic")
-    ? `${base.replace(/\/$/, "")}/v1/messages`
-    : `${base.replace(/\/$/, "")}/anthropic/v1/messages`;
+  const blobAvailable = Boolean(blobToken || (oidcToken && storeId));
 
-  let callResult: unknown;
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 10,
-        messages: [{ role: "user", content: "say ok" }],
-      }),
-      cache: "no-store",
-    });
-    const body = await res.text();
-    callResult = { status: res.status, body: body.slice(0, 300) };
-  } catch (e) {
-    callResult = { error: String(e) };
+  let writeResult: unknown = "skipped";
+  let readResult: unknown = "skipped";
+  let slugRead: unknown = "skipped";
+
+  if (blobAvailable) {
+    // Test write + read with overwrite allowed
+    try {
+      const { put, get } = await import("@vercel/blob");
+      const ts = Date.now();
+      const blob = await put("debug/test.json", JSON.stringify({ ok: true, ts }), {
+        access: "private",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: "application/json",
+      });
+      writeResult = { pathname: blob.pathname };
+
+      const result = await get("debug/test.json", { access: "private" });
+      if (result) {
+        const text = await new Response(result.stream).text();
+        const data = JSON.parse(text) as { ts: number };
+        readResult = { ok: true, tsMatch: data.ts === ts };
+      } else {
+        readResult = { ok: false, reason: "get returned null" };
+      }
+    } catch (e) {
+      writeResult = { error: String(e) };
+    }
+
+    // Test reading a specific page slug if provided
+    if (slug) {
+      try {
+        const { get, list } = await import("@vercel/blob");
+        const pathname = `pages/${slug}.json`;
+
+        // Try direct get
+        const getResult = await get(pathname, { access: "private" });
+        if (getResult) {
+          const text = await new Response(getResult.stream).text();
+          slugRead = { method: "get", ok: true, dataLength: text.length, preview: text.slice(0, 100) };
+        } else {
+          // Fallback: try listing to see if blob exists
+          const { blobs } = await list({ prefix: `pages/${slug}` });
+          slugRead = { method: "list", ok: false, getReturnedNull: true, blobsFound: blobs.map((b) => b.pathname) };
+        }
+      } catch (e) {
+        slugRead = { error: String(e) };
+      }
+    }
   }
 
   return NextResponse.json({
-    endpoint,
-    keyPrefix: key.slice(0, 8) + "...",
-    model,
-    callResult,
+    isVercel: Boolean(isVercel),
+    blobAvailable,
+    hasBlobToken: Boolean(blobToken),
+    hasOidcToken: Boolean(oidcToken),
+    hasStoreId: Boolean(storeId),
+    storeId: storeId ?? null,
+    writeResult,
+    readResult,
+    slugRead,
   });
 }
