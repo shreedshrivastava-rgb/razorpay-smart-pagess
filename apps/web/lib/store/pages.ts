@@ -66,6 +66,10 @@ async function blobSlugExists(slug: string, excludeId?: string): Promise<boolean
   return page.id !== excludeId;
 }
 
+// In-flight slug lock — prevents same-instance concurrent saves from racing to the same slug.
+// Not a substitute for distributed locking, but catches the common case on a single Lambda.
+const slugsInFlight = new Set<string>();
+
 // ─── File / memory fallback ───────────────────────────────────────────────────
 
 const DATA_DIR = process.env.VERCEL
@@ -125,10 +129,20 @@ export async function savePage(page: PageSchema): Promise<void> {
 
 export async function ensureUniqueSlug(slug: string, excludeId?: string): Promise<string> {
   if (blobAvailable()) {
-    if (!(await blobSlugExists(slug, excludeId))) return slug;
+    const MAX_ATTEMPTS = 999;
+    let candidate = slug;
     let counter = 2;
-    while (await blobSlugExists(`${slug}-${counter}`, excludeId)) counter++;
-    return `${slug}-${counter}`;
+    while (true) {
+      const taken = slugsInFlight.has(candidate) || (await blobSlugExists(candidate, excludeId));
+      if (!taken) {
+        slugsInFlight.add(candidate);
+        // Release the lock after 15 s — long enough for savePage to complete
+        setTimeout(() => slugsInFlight.delete(candidate), 15_000);
+        return candidate;
+      }
+      if (counter > MAX_ATTEMPTS) throw new Error("Could not generate a unique slug after 999 attempts");
+      candidate = `${slug}-${counter++}`;
+    }
   }
   const pages = await readPages();
   if (!pages[slug] || pages[slug].id === excludeId) return slug;
