@@ -49,6 +49,8 @@ function useTTS() {
   const stop = useCallback(() => {
     if (audioRef.current) { audioRef.current.pause(); URL.revokeObjectURL(audioRef.current.src); audioRef.current = null; }
   }, []);
+  // Revoke any lingering blob URL when the component unmounts
+  useEffect(() => () => { stop(); }, [stop]);
   const speak = useCallback(async (text: string) => {
     stop();
     try {
