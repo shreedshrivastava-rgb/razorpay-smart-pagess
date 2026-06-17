@@ -146,8 +146,10 @@ export async function ensureUniqueSlug(slug: string, excludeId?: string): Promis
   }
   const pages = await readPages();
   if (!pages[slug] || pages[slug].id === excludeId) return slug;
+  const MAX_LOCAL = 999;
   let counter = 2;
-  while (pages[`${slug}-${counter}`] && pages[`${slug}-${counter}`].id !== excludeId) counter++;
+  while (counter <= MAX_LOCAL && pages[`${slug}-${counter}`] && pages[`${slug}-${counter}`].id !== excludeId) counter++;
+  if (counter > MAX_LOCAL) throw new Error("Could not generate a unique slug after 999 attempts");
   return `${slug}-${counter}`;
 }
 
