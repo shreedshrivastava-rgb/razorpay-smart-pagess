@@ -123,6 +123,7 @@ function CheckoutNav({ brand, payment }: { brand: Brand; payment: Payment }) {
               width={112}
               height={28}
               className="h-7 w-auto object-contain"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
             />
           ) : (
             <div
@@ -203,6 +204,7 @@ function CheckoutHero({
                   height={450}
                   className="w-full h-full object-contain"
                   fetchPriority="high"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
                 />
               </div>
             ) : (
