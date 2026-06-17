@@ -471,8 +471,10 @@ export function ChatInterface() {
             className="flex-1 bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none py-1 disabled:opacity-50"
             onInput={(e) => {
               const el = e.currentTarget;
-              el.style.height = "auto";
-              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+              requestAnimationFrame(() => {
+                el.style.height = "auto";
+                el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+              });
             }}
           />
           <div className="flex items-center gap-1.5 pb-0.5 shrink-0">
