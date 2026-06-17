@@ -320,6 +320,11 @@ export function ChatInterface() {
     setUploadingImage(true);
     try {
       const dataUrl = await processImageFile(file);
+      const MAX_DATA_URL_BYTES = 2_000_000; // 2 MB base64 limit
+      if (dataUrl.length > MAX_DATA_URL_BYTES) {
+        setError("Processed image is too large. Please try a smaller or lower-resolution photo.");
+        return;
+      }
       setPendingPhotoDataUrl(dataUrl);
       // Focus the textarea so user can immediately type what the photo is for
       setTimeout(() => inputRef.current?.focus(), 50);
