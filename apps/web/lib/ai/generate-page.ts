@@ -117,6 +117,7 @@ export async function buildFullPage(input: WizardInput): Promise<PageSchema> {
     template: "modern",
     pageType: input.pageType,
     productImageUrl: input.productImageUrl || input.extracted?.images?.[0],
+    productImages: input.productImages?.length ? input.productImages : undefined,
     productBullets: input.productBullets?.filter(Boolean),
     sections: generated.sections,
     payment: {

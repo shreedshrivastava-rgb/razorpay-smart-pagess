@@ -82,8 +82,8 @@ export function ChatInterface() {
   const [previewVersion, setPreviewVersion] = useState(0);
   const [error, setError] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
-  // Pending photo: selected but not yet sent/identified
-  const [pendingPhotoDataUrl, setPendingPhotoDataUrl] = useState<string | null>(null);
+  // Pending photos: selected but not yet sent/identified
+  const [pendingPhotoDataUrls, setPendingPhotoDataUrls] = useState<string[]>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -130,7 +130,7 @@ export function ChatInterface() {
     }
   }, [messages, context, generatedSlug, previewVersion]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, generating, pendingPhotoDataUrl]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, generating, pendingPhotoDataUrls]);
 
   useEffect(() => { if (!restoredRef.current) void speak(GREETING.content); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -150,6 +150,7 @@ export function ChatInterface() {
       currency: "INR",
       productBullets: ctx.productBullets ?? [],
       productImageUrl: ctx.productImageUrl ?? "",
+      productImages: ctx.productImages?.length ? ctx.productImages : undefined,
       productUrl: ctx.productUrl ?? "",
       ...(isCollection && ctx.collectionProducts?.length
         ? {
@@ -221,14 +222,14 @@ export function ChatInterface() {
   async function sendMessage(text: string) {
     const trimmed = text.trim();
     // Allow sending with just a pending photo (no text required)
-    if ((!trimmed && !pendingPhotoDataUrl) || inflightRef.current || generating) return;
+    if ((!trimmed && pendingPhotoDataUrls.length === 0) || inflightRef.current || generating) return;
     inflightRef.current = true;
     setError("");
     setInput("");
 
-    // Capture and clear pending photo atomically
-    const photoForThisMessage = pendingPhotoDataUrl;
-    setPendingPhotoDataUrl(null);
+    // Capture and clear pending photos atomically
+    const photosForThisMessage = [...pendingPhotoDataUrls];
+    setPendingPhotoDataUrls([]);
 
     setLoading(true);
 
@@ -236,7 +237,7 @@ export function ChatInterface() {
       id: `u-${Date.now()}`,
       role: "user",
       content: trimmed,
-      imageUrl: photoForThisMessage ?? undefined,
+      imageUrl: photosForThisMessage[0] ?? undefined,
     };
     const snapshot = [...messages, userMsg];
     setMessages(snapshot);
@@ -251,7 +252,7 @@ export function ChatInterface() {
             .map((m) => ({ role: m.role, content: m.content })),
           context,
           generatedSlug: generatedSlug ?? undefined,
-          pendingPhotoUrl: photoForThisMessage ?? undefined,
+          pendingPhotoUrl: photosForThisMessage[0] ?? undefined,
         }),
       });
       if (!res.ok) throw new Error("Chat failed");
@@ -264,21 +265,26 @@ export function ChatInterface() {
 
       let updatedCtx = json.context;
 
-      // Map the photo client-side using the AI's photoMapping directive
-      if (photoForThisMessage) {
+      // Map photos client-side using the AI's photoMapping directive
+      if (photosForThisMessage.length > 0) {
         if (json.photoMapping) {
+          // Collection: map first photo to the named product
           const targetName = json.photoMapping.toLowerCase();
           const updatedProducts = (json.context.collectionProducts ?? context.collectionProducts ?? []).map((p) => {
             const pLower = p.name.toLowerCase();
             if (pLower === targetName || targetName.includes(pLower) || pLower.includes(targetName)) {
-              return { ...p, imageUrl: photoForThisMessage };
+              return { ...p, imageUrl: photosForThisMessage[0] };
             }
             return p;
           });
           updatedCtx = { ...json.context, collectionProducts: updatedProducts };
         } else if (json.context.pageType !== "collection") {
-          // Single product — assign directly
-          updatedCtx = { ...json.context, productImageUrl: photoForThisMessage };
+          // Single product — first photo is the hero, all photos go into gallery
+          updatedCtx = {
+            ...json.context,
+            productImageUrl: photosForThisMessage[0],
+            productImages: photosForThisMessage,
+          };
         }
       }
 
@@ -313,27 +319,34 @@ export function ChatInterface() {
   // ─── Photo upload ─────────────────────────────────────────────────────────
 
   async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     e.target.value = "";
     const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
-    if (file.size > MAX_FILE_BYTES) {
-      setError("Image is too large. Please use a photo under 20 MB.");
-      return;
-    }
+    const MAX_DATA_URL_BYTES = 2_000_000; // 2 MB base64 limit
     setUploadingImage(true);
+    const results: string[] = [];
     try {
-      const dataUrl = await processImageFile(file);
-      const MAX_DATA_URL_BYTES = 2_000_000; // 2 MB base64 limit
-      if (dataUrl.length > MAX_DATA_URL_BYTES) {
-        setError("Processed image is too large. Please try a smaller or lower-resolution photo.");
-        return;
+      for (const file of files) {
+        if (file.size > MAX_FILE_BYTES) {
+          setError(`"${file.name}" is too large. Please use photos under 20 MB.`);
+          continue;
+        }
+        try {
+          const dataUrl = await processImageFile(file);
+          if (dataUrl.length > MAX_DATA_URL_BYTES) {
+            setError(`"${file.name}" is too large after processing. Try a smaller photo.`);
+            continue;
+          }
+          results.push(dataUrl);
+        } catch {
+          setError(`Couldn't read "${file.name}". Try a JPG or PNG.`);
+        }
       }
-      setPendingPhotoDataUrl(dataUrl);
-      // Focus the textarea so user can immediately type what the photo is for
-      setTimeout(() => inputRef.current?.focus(), 50);
-    } catch {
-      setError("Couldn't read that image. Try a JPG or PNG under 10 MB.");
+      if (results.length > 0) {
+        setPendingPhotoDataUrls((prev) => [...prev, ...results]);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      }
     } finally {
       setUploadingImage(false);
     }
@@ -341,7 +354,7 @@ export function ChatInterface() {
 
   const isCollection = context.pageType === "collection" && (context.collectionProducts?.length ?? 0) > 0;
   const collectionPhotoCount = context.collectionProducts?.filter((p) => p.imageUrl).length ?? 0;
-  const canSend = (input.trim().length > 0 || !!pendingPhotoDataUrl) && !loading && !generating;
+  const canSend = (input.trim().length > 0 || pendingPhotoDataUrls.length > 0) && !loading && !generating;
 
   return (
     <div className="flex flex-col h-full bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
@@ -394,21 +407,34 @@ export function ChatInterface() {
         ref={fileInputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp,image/heic"
+        multiple
         className="hidden"
         onChange={handleImageSelect}
       />
 
       {/* Pending photo preview strip — shows between pills and input */}
-      {pendingPhotoDataUrl && (
+      {pendingPhotoDataUrls.length > 0 && (
         <div className="px-4 pt-3 pb-1 flex items-center gap-3 bg-indigo-50/70 border-t border-indigo-100">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={pendingPhotoDataUrl}
-            alt="pending upload"
-            className="w-14 h-14 rounded-xl object-cover border-2 border-white shadow-md shrink-0"
-          />
+          <div className="flex gap-1.5 shrink-0">
+            {pendingPhotoDataUrls.slice(0, 4).map((url, i) => (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                key={i}
+                src={url}
+                alt={`pending upload ${i + 1}`}
+                className="w-12 h-12 rounded-lg object-cover border-2 border-white shadow-md"
+              />
+            ))}
+            {pendingPhotoDataUrls.length > 4 && (
+              <div className="w-12 h-12 rounded-lg bg-indigo-200 flex items-center justify-center text-indigo-700 text-xs font-bold">
+                +{pendingPhotoDataUrls.length - 4}
+              </div>
+            )}
+          </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-indigo-700 mb-0.5">Photo ready</p>
+            <p className="text-xs font-semibold text-indigo-700 mb-0.5">
+              {pendingPhotoDataUrls.length === 1 ? "1 photo ready" : `${pendingPhotoDataUrls.length} photos ready`}
+            </p>
             <p className="text-xs text-indigo-500 leading-snug">
               {isCollection
                 ? "Type the product name below and hit send."
@@ -416,9 +442,9 @@ export function ChatInterface() {
             </p>
           </div>
           <button
-            onClick={() => setPendingPhotoDataUrl(null)}
+            onClick={() => setPendingPhotoDataUrls([])}
             className="w-7 h-7 rounded-full bg-white text-gray-400 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors shadow-sm shrink-0 text-sm font-bold"
-            title="Remove photo"
+            title="Remove photos"
           >
             ✕
           </button>
@@ -464,8 +490,8 @@ export function ChatInterface() {
             placeholder={
               generating
                 ? "Building your page…"
-                : pendingPhotoDataUrl
-                  ? (isCollection ? "Which product is this for?" : "What is this a photo of?")
+                : pendingPhotoDataUrls.length > 0
+                  ? (isCollection ? "Which product is this for?" : "Add a caption, or just send it.")
                   : "Tell me about your brand…"
             }
             rows={1}

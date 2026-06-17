@@ -292,6 +292,7 @@ export const PageSchemaValidator = z.object({
   updatedAt: z.string(),
   brand: BrandSchema,
   productImageUrl: z.string().optional(),
+  productImages: z.array(z.string()).optional(),
   productBullets: z.array(z.string()).optional(),
   template: z.enum(["minimal", "modern", "premium", "event", "d2c"]).default("modern"),
   pageType: z.enum([
@@ -371,6 +372,7 @@ export interface WizardInput {
   productDescription: string;
   productUrl?: string;
   productImageUrl?: string;
+  productImages?: string[];
   productBullets?: string[];
   price?: number;
   originalPrice?: number;

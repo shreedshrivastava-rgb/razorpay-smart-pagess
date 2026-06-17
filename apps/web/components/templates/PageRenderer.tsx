@@ -189,6 +189,7 @@ function CheckoutHero({
 
   const trustSection = aboveSections.find((s) => s.type === "trust");
   const imageUrl = page.productImageUrl;
+  const galleryImages = page.productImages && page.productImages.length > 1 ? page.productImages : null;
 
   return (
     <section className="py-8 md:py-12">
@@ -204,17 +205,33 @@ function CheckoutHero({
           >
             {/* Product visual */}
             {imageUrl ? (
-              <div className="rounded-xl overflow-hidden aspect-[4/3] shadow-sm bg-gray-50 flex items-center justify-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imageUrl}
-                  alt={payment.name}
-                  width={600}
-                  height={450}
-                  className="w-full h-full object-contain"
-                  fetchPriority="high"
-                  onError={(e) => { e.currentTarget.style.display = "none"; }}
-                />
+              <div className="flex flex-col gap-2">
+                <div className="rounded-xl overflow-hidden aspect-[4/3] shadow-sm bg-gray-50 flex items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imageUrl}
+                    alt={payment.name}
+                    width={600}
+                    height={450}
+                    className="w-full h-full object-contain"
+                    fetchPriority="high"
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                  />
+                </div>
+                {galleryImages && (
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {galleryImages.map((src, i) => (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        key={i}
+                        src={src}
+                        alt={`${payment.name} ${i + 1}`}
+                        className="w-16 h-16 rounded-lg object-cover shrink-0 border-2 border-white shadow-sm"
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <BrandedProductCard brand={brand} payment={payment} pageType={page.pageType} />

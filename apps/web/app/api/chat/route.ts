@@ -19,6 +19,7 @@ export interface ChatContext {
   pageType?: string;
   productBullets?: string[];
   productImageUrl?: string;
+  productImages?: string[];
   productUrl?: string;
   // Variants & options
   variants?: { label: string; options: string[] }[];
