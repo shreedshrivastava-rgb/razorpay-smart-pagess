@@ -40,3 +40,7 @@ export function useEditMode() {
   if (!ctx) throw new Error("useEditMode must be inside EditModeProvider");
   return ctx;
 }
+
+export function useEditModeOptional() {
+  return useContext(EditModeContext);
+}

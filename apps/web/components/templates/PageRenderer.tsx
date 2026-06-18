@@ -137,13 +137,14 @@ function CollectionPageInner({
       <CollectionNav brand={brand} />
       <CollectionHero brand={brand} payment={payment} page={page} />
       <div id="products" className="bg-white">
-        {sections.map((section) => (
+        {sections.map((section, idx) => (
           <SectionRenderer
             key={section.id}
             section={section}
             brand={brand}
             onCtaClick={() => {}}
             razorpayKeyId={payment.razorpayKeyId}
+            sectionIndex={idx}
           />
         ))}
       </div>

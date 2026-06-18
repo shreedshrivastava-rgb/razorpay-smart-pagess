@@ -15,9 +15,10 @@ interface SectionRendererProps {
   brand: Brand;
   onCtaClick?: () => void;
   razorpayKeyId?: string;
+  sectionIndex?: number;
 }
 
-export function SectionRenderer({ section, brand, onCtaClick, razorpayKeyId }: SectionRendererProps) {
+export function SectionRenderer({ section, brand, onCtaClick, razorpayKeyId, sectionIndex }: SectionRendererProps) {
   if (!section.visible) return null;
 
   switch (section.type) {
@@ -46,6 +47,7 @@ export function SectionRenderer({ section, brand, onCtaClick, razorpayKeyId }: S
           section={section}
           brand={brand}
           razorpayKeyId={razorpayKeyId ?? "rzp_test_placeholder"}
+          sectionIndex={sectionIndex}
         />
       );
     default:
