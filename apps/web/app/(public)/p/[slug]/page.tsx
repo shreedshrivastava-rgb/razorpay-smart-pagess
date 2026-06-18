@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getPage } from "@/lib/store/pages";
+import { getPage, getPageEditToken } from "@/lib/store/pages";
 import { PageRenderer } from "@/components/templates/PageRenderer";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
@@ -47,9 +47,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function PublicPage({ params }: Props) {
   const { slug } = await params;
   await ensureDemoPage(slug);
-  const page = await getPage(slug);
+  const [page, editToken] = await Promise.all([getPage(slug), getPageEditToken(slug)]);
 
   if (!page) notFound();
 
-  return <PageRenderer page={page} />;
+  // Pages created before the token system have no stored token — they're unprotected
+  // and the PATCH endpoint already allows editing them freely.
+  const isProtected = editToken !== null;
+
+  return <PageRenderer page={page} isProtected={isProtected} />;
 }

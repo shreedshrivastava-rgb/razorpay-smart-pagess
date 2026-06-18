@@ -11,6 +11,7 @@ import { EditModeProvider, useEditMode } from "@/components/editor/EditModeConte
 interface PageRendererProps {
   page: PageSchema;
   isPreview?: boolean;
+  isProtected?: boolean;
 }
 
 function sanitizeHexColor(color: string | undefined, fallback: string): string {
@@ -18,7 +19,7 @@ function sanitizeHexColor(color: string | undefined, fallback: string): string {
   return fallback;
 }
 
-export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
+export function PageRenderer({ page, isPreview = false, isProtected = false }: PageRendererProps) {
   const { brand, sections, payment } = page;
 
   const primaryColor = sanitizeHexColor(brand.primaryColor, "#6366f1");
@@ -72,7 +73,7 @@ export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
     return (
       <EditModeProvider>
         <CartProvider>
-          <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} />
+          <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} isProtected={isProtected} />
         </CartProvider>
       </EditModeProvider>
     );
@@ -112,7 +113,7 @@ export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
 
 // ─── Collection page inner (needs useEditMode hook) ──────────────
 function CollectionPageInner({
-  page, wrapper, brandStyle, brand, sections, payment,
+  page, wrapper, brandStyle, brand, sections, payment, isProtected,
 }: {
   page: PageSchema;
   wrapper: string;
@@ -120,12 +121,14 @@ function CollectionPageInner({
   brand: Brand;
   sections: Section[];
   payment: Payment;
+  isProtected: boolean;
 }) {
   const { editMode, toggle } = useEditMode();
 
-  // Auto-enable edit mode for the page owner as soon as we detect ownership.
-  // Owners always land in edit mode (Framer-style) — no extra button click needed.
   useEffect(() => {
+    // Unprotected = old page created before the token system: anyone can edit (backend allows it).
+    // Protected = new page: only show edit mode if this browser has the ownership token.
+    if (!isProtected) { toggle(); return; }
     try {
       const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
       if (owned[page.slug] && !editMode) toggle();
