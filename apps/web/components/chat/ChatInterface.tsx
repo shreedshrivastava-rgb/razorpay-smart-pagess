@@ -84,10 +84,12 @@ export function ChatInterface() {
   const [pendingPhotoDataUrls, setPendingPhotoDataUrls] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
+  const [editToolActive, setEditToolActive] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const inflightRef = useRef(false);
   const restoredRef = useRef(false);
   const storageWarnedRef = useRef(false);
@@ -365,7 +367,20 @@ export function ChatInterface() {
 
   function refreshPreview() {
     setPreviewReady(false);
+    setPreviewVersion((v) => v + 1);
     setTimeout(() => setPreviewReady(true), 1500);
+  }
+
+  function handleEditTool(active: boolean) {
+    setEditToolActive(active);
+    if (active) {
+      setTimeout(() => {
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: "SMART_PAGES_EDIT", enabled: true },
+          window.location.origin
+        );
+      }, 50);
+    }
   }
 
   const isCollection = context.pageType === "collection" && (context.collectionProducts?.length ?? 0) > 0;
@@ -380,6 +395,7 @@ export function ChatInterface() {
     setGeneratedSlug(null);
     setPreviewVersion(0);
     setPreviewReady(false);
+    setEditToolActive(false);
     setError("");
     setPendingPhotoDataUrls([]);
     try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
@@ -609,10 +625,21 @@ export function ChatInterface() {
             {/* Full page iframe or loading state */}
             {previewReady ? (
               <iframe
+                ref={iframeRef}
                 key={`${generatedSlug}-${previewVersion}`}
                 src={`/p/${generatedSlug}`}
                 className="flex-1 w-full border-0"
                 title="Page preview"
+                onLoad={() => {
+                  if (editToolActive) {
+                    setTimeout(() => {
+                      iframeRef.current?.contentWindow?.postMessage(
+                        { type: "SMART_PAGES_EDIT", enabled: true },
+                        window.location.origin
+                      );
+                    }, 150);
+                  }
+                }}
               />
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
@@ -623,6 +650,25 @@ export function ChatInterface() {
                 <p className="text-sm text-gray-500">Loading preview…</p>
               </div>
             )}
+            {/* Bottom editing toolbar */}
+            <div className="h-12 bg-white border-t border-gray-200 flex items-center justify-center gap-1 shrink-0 px-4">
+              <button
+                onClick={() => handleEditTool(false)}
+                title="Navigate"
+                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${!editToolActive ? "bg-gray-900 text-white" : "text-gray-400 hover:bg-gray-100"}`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 3l14 9-7 1-4 7z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => handleEditTool(true)}
+                title="Edit text"
+                className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm transition-colors ${editToolActive ? "bg-gray-900 text-white" : "text-gray-500 hover:bg-gray-100"}`}
+              >
+                T
+              </button>
+            </div>
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-5 px-8 text-center">

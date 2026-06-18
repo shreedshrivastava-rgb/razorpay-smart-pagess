@@ -123,9 +123,7 @@ function CollectionPageInner({
   payment: Payment;
   isProtected: boolean;
 }) {
-  const { editMode, toggle } = useEditMode();
-  // Unprotected pages (created before the token system) show the button to everyone.
-  // Protected pages only show it in the browser that originally created the page.
+  const { editMode, toggle, enable } = useEditMode();
   const [showEdit, setShowEdit] = useState(!isProtected);
 
   useEffect(() => {
@@ -136,6 +134,16 @@ function CollectionPageInner({
       setShowEdit(!!(token || owned[page.slug]));
     } catch { /* localStorage unavailable */ }
   }, [page.slug, isProtected]);
+
+  // Allow the chat preview panel to activate edit mode via postMessage
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "SMART_PAGES_EDIT" && event.data.enabled) enable();
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [enable]);
 
   return (
     <div className={wrapper} style={brandStyle}>
