@@ -175,16 +175,18 @@ export function ChatInterface() {
         body: JSON.stringify(buildWizardInput(ctx)),
       });
       if (!res.ok) throw new Error("Generation failed");
-      const json = await res.json() as { data?: { slug?: string } };
+      const json = await res.json() as { data?: { slug?: string; editToken?: string } };
       const slug = json.data?.slug;
+      const editToken = json.data?.editToken;
       if (slug) {
         setGeneratedSlug(slug);
         setPreviewVersion(0);
-        // Mark this page as owned by the creator's browser
+        // Store ownership marker (button visibility) and the secret edit token (actual security)
         try {
           const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
           owned[slug] = true;
           localStorage.setItem("owned_pages", JSON.stringify(owned));
+          if (editToken) localStorage.setItem(`edit_token_${slug}`, editToken);
         } catch { /* localStorage unavailable */ }
         const origin = typeof window !== "undefined" ? window.location.origin : "";
         const pageUrl = `${origin}/p/${slug}`;

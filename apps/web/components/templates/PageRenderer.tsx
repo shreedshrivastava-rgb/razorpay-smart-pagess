@@ -1065,9 +1065,10 @@ function EditBar({ page }: { page: PageSchema }) {
         for (let i = 0; i < parts.length - 1; i++) { obj = obj[parts[i]]; if (!obj) break; }
         if (obj) obj[parts[parts.length - 1]] = value;
       }
+      const editToken = (() => { try { return localStorage.getItem(`edit_token_${page.slug}`) ?? ""; } catch { return ""; } })();
       const res = await fetch(`/api/pages/${page.slug}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Edit-Token": editToken },
         body: JSON.stringify(updated),
       });
       if (!res.ok) throw new Error("Save failed");

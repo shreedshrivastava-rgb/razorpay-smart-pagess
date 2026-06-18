@@ -6,6 +6,10 @@ import type { PageSchema } from "@/lib/schema/page-schema";
 // When BLOB_READ_WRITE_TOKEN is set (Blob store connected), pages are stored as
 // JSON objects in Blob. Falls back to in-memory + /tmp for local dev.
 
+// StoredPage is what lives in the blob/file. The _editToken field is internal:
+// it is never returned to callers of getPage() and never serialized to the client.
+type StoredPage = PageSchema & { _editToken?: string };
+
 function blobAvailable() {
   // BLOB_READ_WRITE_TOKEN: manual token (local dev / explicit setup)
   // VERCEL_OIDC_TOKEN + BLOB_STORE_ID: auto-injected by Vercel at runtime (production)
@@ -15,9 +19,9 @@ function blobAvailable() {
   );
 }
 
-async function blobSave(page: PageSchema): Promise<void> {
+async function blobSaveRaw(data: StoredPage): Promise<void> {
   const { put } = await import("@vercel/blob");
-  await put(`pages/${page.slug}.json`, JSON.stringify(page), {
+  await put(`pages/${data.slug}.json`, JSON.stringify(data), {
     access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
@@ -35,12 +39,23 @@ async function readStream(stream: ReadableStream): Promise<string> {
   return text;
 }
 
-async function blobGet(slug: string): Promise<PageSchema | null> {
+async function blobGetRaw(slug: string): Promise<StoredPage | null> {
   const { get } = await import("@vercel/blob");
   const result = await get(`pages/${slug}.json`, { access: "private" });
   if (!result?.stream) return null;
   const text = await readStream(result.stream);
-  return JSON.parse(text) as PageSchema;
+  return JSON.parse(text) as StoredPage;
+}
+
+function stripToken(stored: StoredPage): PageSchema {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { _editToken, ...page } = stored;
+  return page;
+}
+
+async function blobGet(slug: string): Promise<PageSchema | null> {
+  const raw = await blobGetRaw(slug);
+  return raw ? stripToken(raw) : null;
 }
 
 async function blobGetAll(): Promise<PageSchema[]> {
@@ -52,7 +67,7 @@ async function blobGetAll(): Promise<PageSchema[]> {
         const result = await get(blob.pathname, { access: "private" });
         if (!result?.stream) return null;
         const text = await readStream(result.stream);
-        return JSON.parse(text) as PageSchema;
+        return stripToken(JSON.parse(text) as StoredPage);
       } catch {
         return null;
       }
@@ -86,7 +101,7 @@ const DATA_DIR = process.env.VERCEL
   ? "/tmp/.smart-pages-data"
   : path.join(process.cwd(), ".data");
 const PAGES_FILE = path.join(DATA_DIR, "pages.json");
-const memCache: Record<string, PageSchema> = {};
+const memCache: Record<string, StoredPage> = {};
 
 let writeLock: Promise<void> = Promise.resolve();
 function withLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -100,11 +115,11 @@ async function ensureDataDir() {
   await mkdir(DATA_DIR, { recursive: true });
 }
 
-async function readPages(): Promise<Record<string, PageSchema>> {
+async function readPages(): Promise<Record<string, StoredPage>> {
   if (Object.keys(memCache).length > 0) return memCache;
   try {
     const content = await readFile(PAGES_FILE, "utf-8");
-    const parsed = JSON.parse(content) as Record<string, PageSchema>;
+    const parsed = JSON.parse(content) as Record<string, StoredPage>;
     Object.assign(memCache, parsed);
     return memCache;
   } catch {
@@ -112,7 +127,7 @@ async function readPages(): Promise<Record<string, PageSchema>> {
   }
 }
 
-async function writePages(pages: Record<string, PageSchema>) {
+async function writePages(pages: Record<string, StoredPage>) {
   Object.assign(memCache, pages);
   try {
     await ensureDataDir();
@@ -125,15 +140,16 @@ async function writePages(pages: Record<string, PageSchema>) {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export async function savePage(page: PageSchema): Promise<void> {
+export async function savePage(page: PageSchema, editToken?: string): Promise<void> {
   console.log(`[audit] savePage slug="${page.slug}" id="${page.id}" at=${new Date().toISOString()}`);
+  const stored: StoredPage = editToken ? { _editToken: editToken, ...page } : page;
   if (blobAvailable()) {
-    await blobSave(page);
+    await blobSaveRaw(stored);
     return;
   }
   return withLock(async () => {
     const pages = await readPages();
-    pages[page.slug] = page;
+    pages[page.slug] = stored;
     await writePages(pages);
   });
 }
@@ -167,13 +183,23 @@ export async function ensureUniqueSlug(slug: string, excludeId?: string): Promis
 export async function getPage(slug: string): Promise<PageSchema | null> {
   if (blobAvailable()) return blobGet(slug);
   const pages = await readPages();
-  return pages[slug] || null;
+  const stored = pages[slug];
+  return stored ? stripToken(stored) : null;
+}
+
+export async function getPageEditToken(slug: string): Promise<string | null> {
+  if (blobAvailable()) {
+    const raw = await blobGetRaw(slug);
+    return raw?._editToken ?? null;
+  }
+  const pages = await readPages();
+  return pages[slug]?._editToken ?? null;
 }
 
 export async function getAllPages(): Promise<PageSchema[]> {
   if (blobAvailable()) return blobGetAll();
   const pages = await readPages();
-  return Object.values(pages).sort(
+  return Object.values(pages).map(stripToken).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 }
@@ -198,14 +224,15 @@ export async function updatePage(
   expectedUpdatedAt?: string
 ): Promise<PageSchema | null> {
   if (blobAvailable()) {
-    const page = await blobGet(slug);
-    if (!page) return null;
-    if (expectedUpdatedAt && page.updatedAt !== expectedUpdatedAt) {
+    // Use raw read to preserve _editToken through the update
+    const raw = await blobGetRaw(slug);
+    if (!raw) return null;
+    if (expectedUpdatedAt && raw.updatedAt !== expectedUpdatedAt) {
       throw new Error("Conflict: page was modified by another request. Refresh and try again.");
     }
-    const updated = { ...page, ...updates, updatedAt: new Date().toISOString() };
-    await blobSave(updated);
-    return updated;
+    const updated: StoredPage = { ...raw, ...updates, updatedAt: new Date().toISOString() };
+    await blobSaveRaw(updated);
+    return stripToken(updated);
   }
   return withLock(async () => {
     const pages = await readPages();
@@ -215,6 +242,6 @@ export async function updatePage(
     }
     pages[slug] = { ...pages[slug], ...updates, updatedAt: new Date().toISOString() };
     await writePages(pages);
-    return pages[slug];
+    return stripToken(pages[slug]);
   });
 }

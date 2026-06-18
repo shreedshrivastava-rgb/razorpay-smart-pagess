@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { buildFullPage } from "@/lib/ai/generate-page";
 import { savePage, ensureUniqueSlug } from "@/lib/store/pages";
 import type { WizardInput } from "@/lib/schema/page-schema";
@@ -50,9 +51,10 @@ export async function POST(req: NextRequest) {
       page.slug = await ensureUniqueSlug(page.slug, page.id);
     }
 
-    await savePage(page);
+    const editToken = randomBytes(16).toString("hex");
+    await savePage(page, editToken);
 
-    return NextResponse.json({ success: true, data: page });
+    return NextResponse.json({ success: true, data: { ...page, editToken } });
   } catch (error) {
     console.error(`[${reqId}] Generation error:`, error);
     const message = error instanceof Error ? error.message : "Generation failed";

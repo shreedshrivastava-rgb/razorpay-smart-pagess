@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPage, updatePage, deletePage } from "@/lib/store/pages";
+import { getPage, getPageEditToken, updatePage, deletePage } from "@/lib/store/pages";
 
 const deleteRateLimit = new Map<string, { count: number; resetAt: number }>();
 function checkDeleteRateLimit(ip: string): boolean {
@@ -40,6 +40,13 @@ export async function PATCH(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const { id } = await params;
+
+  const storedToken = await getPageEditToken(id);
+  const providedToken = req.headers.get("x-edit-token");
+  if (storedToken && providedToken !== storedToken) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
   const updates = await req.json();
   const page = await updatePage(id, updates);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
