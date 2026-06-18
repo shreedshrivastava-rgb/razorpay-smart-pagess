@@ -1,5 +1,7 @@
 import { ChatInterface } from "@/components/chat/ChatInterface";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Create your payment page — Razorpay Smart Pages",
   description: "Just tell us what you sell. We'll build the rest.",
