@@ -73,7 +73,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false }: P
     return (
       <EditModeProvider>
         <CartProvider>
-          <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} isProtected={isProtected} />
+          <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} isProtected={isProtected ?? false} />
         </CartProvider>
       </EditModeProvider>
     );
@@ -124,17 +124,18 @@ function CollectionPageInner({
   isProtected: boolean;
 }) {
   const { editMode, toggle } = useEditMode();
+  // Unprotected pages (created before the token system) show the button to everyone.
+  // Protected pages only show it in the browser that originally created the page.
+  const [showEdit, setShowEdit] = useState(!isProtected);
 
   useEffect(() => {
-    // Unprotected = old page created before the token system: anyone can edit (backend allows it).
-    // Protected = new page: only show edit mode if this browser has the ownership token.
-    if (!isProtected) { toggle(); return; }
+    if (!isProtected) { setShowEdit(true); return; }
     try {
+      const token = localStorage.getItem(`edit_token_${page.slug}`);
       const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
-      if (owned[page.slug] && !editMode) toggle();
+      setShowEdit(!!(token || owned[page.slug]));
     } catch { /* localStorage unavailable */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page.slug]);
+  }, [page.slug, isProtected]);
 
   return (
     <div className={wrapper} style={brandStyle}>
@@ -155,6 +156,17 @@ function CollectionPageInner({
       </div>
       <CheckoutFooter brand={brand} />
       <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
+      {showEdit && (
+        <button
+          onClick={toggle}
+          title={editMode ? "Exit editing" : "Edit page"}
+          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-xl flex items-center justify-center text-white text-xl transition-all hover:scale-110 active:scale-95"
+          style={{ backgroundColor: editMode ? "#16a34a" : "#6366f1" }}
+          aria-label={editMode ? "Exit editing" : "Edit page"}
+        >
+          {editMode ? "✓" : "✏"}
+        </button>
+      )}
     </div>
   );
 }
@@ -1065,10 +1077,11 @@ function EditBar({ page }: { page: PageSchema }) {
         headers: { "Content-Type": "application/json", "X-Edit-Token": editToken },
         body: JSON.stringify(updated),
       });
-      if (!res.ok) throw new Error("Save failed");
+      if (res.status === 403) throw new Error("Not authorized — only the page creator can save changes.");
+      if (!res.ok) throw new Error("Save failed. Try again.");
       window.location.reload();
-    } catch {
-      setSaveError("Couldn't save. Try again.");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Couldn't save. Try again.");
     } finally {
       setSaving(false);
     }

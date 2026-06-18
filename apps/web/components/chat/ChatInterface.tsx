@@ -365,6 +365,20 @@ export function ChatInterface() {
   const collectionPhotoCount = context.collectionProducts?.filter((p) => p.imageUrl).length ?? 0;
   const canSend = (input.trim().length > 0 || pendingPhotoDataUrls.length > 0) && !loading && !generating;
 
+  function handleNewChat() {
+    stopAudio();
+    setMessages([GREETING]);
+    setContext({});
+    setInput("");
+    setGeneratedSlug(null);
+    setPreviewVersion(0);
+    setError("");
+    setPendingPhotoDataUrls([]);
+    try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
+    restoredRef.current = false;
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
   return (
     <div className="flex flex-col h-full bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
 
@@ -375,9 +389,18 @@ export function ChatInterface() {
           <p className="text-sm font-semibold text-white">Smart Pages AI</p>
           <p className="text-xs text-indigo-200">by Razorpay</p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={handleNewChat}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/15 hover:bg-white/25 text-white transition-colors"
+            title="Start a new chat"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            New chat
+          </button>
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs text-indigo-200">Ready</span>
         </div>
       </div>
 
