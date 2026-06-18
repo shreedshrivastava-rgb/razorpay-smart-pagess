@@ -49,7 +49,6 @@ function useTTS() {
   const stop = useCallback(() => {
     if (audioRef.current) { audioRef.current.pause(); URL.revokeObjectURL(audioRef.current.src); audioRef.current = null; }
   }, []);
-  // Revoke any lingering blob URL when the component unmounts
   useEffect(() => () => { stop(); }, [stop]);
   const speak = useCallback(async (text: string) => {
     stop();
@@ -82,8 +81,8 @@ export function ChatInterface() {
   const [previewVersion, setPreviewVersion] = useState(0);
   const [error, setError] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
-  // Pending photos: selected but not yet sent/identified
   const [pendingPhotoDataUrls, setPendingPhotoDataUrls] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -91,6 +90,10 @@ export function ChatInterface() {
   const inflightRef = useRef(false);
   const restoredRef = useRef(false);
   const storageWarnedRef = useRef(false);
+
+  const pageUrl = generatedSlug
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/p/${generatedSlug}`
+    : "";
 
   // Restore from sessionStorage
   useEffect(() => {
@@ -118,7 +121,6 @@ export function ChatInterface() {
         storageWarnedRef.current = true;
         setError("Your browser storage is almost full — progress may not save on refresh.");
       }
-      // Retry with only the last 10 messages to reduce size
       try {
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
           messages: messages.slice(-10),
@@ -181,17 +183,13 @@ export function ChatInterface() {
       if (slug) {
         setGeneratedSlug(slug);
         setPreviewVersion(0);
-        // Store ownership marker (button visibility) and the secret edit token (actual security)
         try {
           const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
           owned[slug] = true;
           localStorage.setItem("owned_pages", JSON.stringify(owned));
           if (editToken) localStorage.setItem(`edit_token_${slug}`, editToken);
         } catch { /* localStorage unavailable */ }
-        const origin = typeof window !== "undefined" ? window.location.origin : "";
-        const pageUrl = `${origin}/p/${slug}`;
-        const preview = `Your page is live! 🔗 ${pageUrl}`;
-        addMessage({ role: "assistant", content: preview });
+        addMessage({ role: "assistant", content: "Your page is live! 🎉" });
         addMessage({ role: "preview", content: "", previewSlug: slug, previewVersion: 0 });
         void speak("Your page is live! The link is ready to share.");
       }
@@ -218,7 +216,6 @@ export function ChatInterface() {
         setPreviewVersion(nextVersion);
         const msg = "Done! Your page has been updated.";
         addMessage({ role: "assistant", content: msg });
-        addMessage({ role: "preview", content: "", previewSlug: slug, previewVersion: nextVersion });
         void speak(msg);
       }
     } catch {
@@ -230,13 +227,11 @@ export function ChatInterface() {
 
   async function sendMessage(text: string) {
     const trimmed = text.trim();
-    // Allow sending with just a pending photo (no text required)
     if ((!trimmed && pendingPhotoDataUrls.length === 0) || inflightRef.current || generating) return;
     inflightRef.current = true;
     setError("");
     setInput("");
 
-    // Capture and clear pending photos atomically
     const photosForThisMessage = [...pendingPhotoDataUrls];
     setPendingPhotoDataUrls([]);
 
@@ -274,10 +269,8 @@ export function ChatInterface() {
 
       let updatedCtx = json.context;
 
-      // Map photos client-side using the AI's photoMapping directive
       if (photosForThisMessage.length > 0) {
         if (json.photoMapping) {
-          // Collection: map first photo to the named product
           const targetName = json.photoMapping.toLowerCase();
           const updatedProducts = (json.context.collectionProducts ?? context.collectionProducts ?? []).map((p) => {
             const pLower = p.name.toLowerCase();
@@ -288,7 +281,6 @@ export function ChatInterface() {
           });
           updatedCtx = { ...json.context, collectionProducts: updatedProducts };
         } else if (json.context.pageType !== "collection") {
-          // Single product — first photo is the hero, all photos go into gallery
           updatedCtx = {
             ...json.context,
             productImageUrl: photosForThisMessage[0],
@@ -301,11 +293,10 @@ export function ChatInterface() {
       addMessage({ role: "assistant", content: json.reply });
       void speak(json.reply);
 
-      // Don't trigger generation/update if the AI is still waiting for photos
       const stillNeedsPhotos = updatedCtx.pageType === "collection"
         && (updatedCtx.collectionProducts?.length ?? 0) > 0
         && (updatedCtx.collectionProducts?.some((p) => !p.imageUrl) ?? false)
-        && json.action !== "generate"; // explicit "skip photos" path still goes through
+        && json.action !== "generate";
 
       if (!stillNeedsPhotos && (json.action === "generate" || json.action === "update")) {
         if (generatedSlug) setTimeout(() => void triggerUpdate(updatedCtx, generatedSlug), 600);
@@ -325,14 +316,12 @@ export function ChatInterface() {
 
   function handleVoiceTranscript(text: string) { stopAudio(); void sendMessage(text); }
 
-  // ─── Photo upload ─────────────────────────────────────────────────────────
-
   async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
     e.target.value = "";
-    const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
-    const MAX_DATA_URL_BYTES = 2_000_000; // 2 MB base64 limit
+    const MAX_FILE_BYTES = 20 * 1024 * 1024;
+    const MAX_DATA_URL_BYTES = 2_000_000;
     setUploadingImage(true);
     const results: string[] = [];
     try {
@@ -361,6 +350,14 @@ export function ChatInterface() {
     }
   }
 
+  function copyLink() {
+    if (!pageUrl) return;
+    void navigator.clipboard.writeText(pageUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
   const isCollection = context.pageType === "collection" && (context.collectionProducts?.length ?? 0) > 0;
   const collectionPhotoCount = context.collectionProducts?.filter((p) => p.imageUrl).length ?? 0;
   const canSend = (input.trim().length > 0 || pendingPhotoDataUrls.length > 0) && !loading && !generating;
@@ -380,182 +377,238 @@ export function ChatInterface() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden bg-[#0f172a]">
 
-      {/* Header */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-600 to-violet-600">
-        <div className="w-9 h-9 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white text-lg">✦</div>
-        <div>
-          <p className="text-sm font-semibold text-white">Smart Pages AI</p>
-          <p className="text-xs text-indigo-200">by Razorpay</p>
-        </div>
-        <div className="ml-auto flex items-center gap-3">
-          <button
-            onClick={handleNewChat}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/15 hover:bg-white/25 text-white transition-colors"
-            title="Start a new chat"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            New chat
-          </button>
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        </div>
-      </div>
+      {/* ─── Left: Chat sidebar ─────────────────────────────────────────── */}
+      <div className="w-full lg:w-[420px] lg:shrink-0 flex flex-col h-full border-r border-white/10">
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3 bg-gray-50/50">
-        {messages.map((msg) => (
-          <ChatBubble key={msg.id} message={msg} />
-        ))}
-
-        {loading && <TypingIndicator />}
-
-        {generating && (
-          <div className="flex items-center gap-3 self-start">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-sm shrink-0">✦</div>
-            <div className="bg-white border border-indigo-100 shadow-sm rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2.5">
-              <svg className="animate-spin w-4 h-4 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        {/* Header */}
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10">
+          <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 text-base">✦</div>
+          <div>
+            <p className="text-sm font-semibold text-white">Smart Pages AI</p>
+            <p className="text-xs text-white/40">by Razorpay</p>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={handleNewChat}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-white/60 hover:text-white transition-colors"
+              title="Start a new chat"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
               </svg>
-              <span className="text-sm text-indigo-700 font-medium">{generatedSlug ? "Updating your page…" : "Building your page…"}</span>
+              New chat
+            </button>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
+          {messages.map((msg) => (
+            <ChatBubble key={msg.id} message={msg} />
+          ))}
+
+          {loading && <TypingIndicator />}
+
+          {generating && (
+            <div className="flex items-center gap-2 self-start">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xs shrink-0">✦</div>
+              <div className="bg-white/10 rounded-2xl rounded-tl-sm px-3.5 py-2.5 flex items-center gap-2">
+                <svg className="animate-spin w-3.5 h-3.5 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="text-sm text-indigo-300 font-medium">{generatedSlug ? "Updating your page…" : "Building your page…"}</span>
+              </div>
             </div>
+          )}
+
+          {error && (
+            <p className="text-xs text-red-400 self-center py-1 bg-red-900/30 px-3 rounded-full">{error}</p>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Context pills */}
+        {Object.values(context).some(Boolean) && (
+          <ContextPills context={context} collectionPhotoCount={collectionPhotoCount} />
+        )}
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic"
+          multiple
+          className="hidden"
+          onChange={handleImageSelect}
+        />
+
+        {/* Pending photo preview strip */}
+        {pendingPhotoDataUrls.length > 0 && (
+          <div className="px-4 pt-3 pb-1 flex items-center gap-3 bg-white/5 border-t border-white/10">
+            <div className="flex gap-1.5 shrink-0">
+              {pendingPhotoDataUrls.slice(0, 4).map((url, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={url}
+                  alt={`pending upload ${i + 1}`}
+                  className="w-10 h-10 rounded-lg object-cover border-2 border-white/20 shadow-md"
+                />
+              ))}
+              {pendingPhotoDataUrls.length > 4 && (
+                <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-white/60 text-xs font-bold">
+                  +{pendingPhotoDataUrls.length - 4}
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-indigo-300 mb-0.5">
+                {pendingPhotoDataUrls.length === 1 ? "1 photo ready" : `${pendingPhotoDataUrls.length} photos ready`}
+              </p>
+              <p className="text-xs text-white/40 leading-snug">
+                {isCollection ? "Type the product name below and hit send." : "Add a caption below, or just send it."}
+              </p>
+            </div>
+            <button
+              onClick={() => setPendingPhotoDataUrls([])}
+              className="w-7 h-7 rounded-full bg-white/10 text-white/40 hover:text-red-400 hover:bg-red-900/30 flex items-center justify-center transition-colors shrink-0 text-sm font-bold"
+              title="Remove photos"
+            >
+              ✕
+            </button>
           </div>
         )}
 
-        {error && <p className="text-xs text-red-500 self-center py-1 bg-red-50 px-3 rounded-full">{error}</p>}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Context pills */}
-      {Object.values(context).some(Boolean) && (
-        <ContextPills context={context} collectionPhotoCount={collectionPhotoCount} />
-      )}
-
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic"
-        multiple
-        className="hidden"
-        onChange={handleImageSelect}
-      />
-
-      {/* Pending photo preview strip — shows between pills and input */}
-      {pendingPhotoDataUrls.length > 0 && (
-        <div className="px-4 pt-3 pb-1 flex items-center gap-3 bg-indigo-50/70 border-t border-indigo-100">
-          <div className="flex gap-1.5 shrink-0">
-            {pendingPhotoDataUrls.slice(0, 4).map((url, i) => (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                key={i}
-                src={url}
-                alt={`pending upload ${i + 1}`}
-                className="w-12 h-12 rounded-lg object-cover border-2 border-white shadow-md"
-              />
-            ))}
-            {pendingPhotoDataUrls.length > 4 && (
-              <div className="w-12 h-12 rounded-lg bg-indigo-200 flex items-center justify-center text-indigo-700 text-xs font-bold">
-                +{pendingPhotoDataUrls.length - 4}
-              </div>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-indigo-700 mb-0.5">
-              {pendingPhotoDataUrls.length === 1 ? "1 photo ready" : `${pendingPhotoDataUrls.length} photos ready`}
-            </p>
-            <p className="text-xs text-indigo-500 leading-snug">
-              {isCollection
-                ? "Type the product name below and hit send."
-                : "Add a caption below, or just send it."}
-            </p>
-          </div>
-          <button
-            onClick={() => setPendingPhotoDataUrls([])}
-            className="w-7 h-7 rounded-full bg-white text-gray-400 hover:text-red-400 hover:bg-red-50 flex items-center justify-center transition-colors shadow-sm shrink-0 text-sm font-bold"
-            title="Remove photos"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* Input */}
-      <div className="px-4 pb-4 pt-2 border-t border-gray-100 bg-white">
-        <div className="flex items-end gap-2 bg-gray-50 rounded-2xl border border-gray-200 px-3 py-2 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadingImage || generating}
-            title="Upload photo"
-            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 relative"
-          >
-            {uploadingImage ? (
-              <svg className="animate-spin w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-              </svg>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                {isCollection && collectionPhotoCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] font-bold flex items-center justify-center">
-                    {collectionPhotoCount}
-                  </span>
-                )}
-              </>
-            )}
-          </button>
-
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={loading || generating}
-            placeholder={
-              generating
-                ? "Building your page…"
-                : pendingPhotoDataUrls.length > 0
-                  ? (isCollection ? "Which product is this for?" : "Add a caption, or just send it.")
-                  : "Tell me about your brand…"
-            }
-            rows={1}
-            style={{ resize: "none", minHeight: "36px", maxHeight: "120px" }}
-            className="flex-1 bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none py-1 disabled:opacity-50"
-            onInput={(e) => {
-              const el = e.currentTarget;
-              requestAnimationFrame(() => {
-                el.style.height = "auto";
-                el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-              });
-            }}
-          />
-          <div className="flex items-center gap-1.5 pb-0.5 shrink-0">
-            <VoiceButton onTranscript={handleVoiceTranscript} disabled={loading || generating} />
+        {/* Input */}
+        <div className="px-4 pb-4 pt-2 border-t border-white/10">
+          <div className="flex items-end gap-2 bg-white/10 rounded-2xl border border-white/10 px-3 py-2 focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20 transition-all">
             <button
               type="button"
-              onClick={() => void sendMessage(input)}
-              disabled={!canSend}
-              className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md shadow-indigo-200"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingImage || generating}
+              title="Upload photo"
+              className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all text-white/40 hover:text-indigo-400 hover:bg-white/10 disabled:opacity-40 relative"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5 12 12 5 19 12" />
-              </svg>
+              {uploadingImage ? (
+                <svg className="animate-spin w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  {isCollection && collectionPhotoCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      {collectionPhotoCount}
+                    </span>
+                  )}
+                </>
+              )}
             </button>
+
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={loading || generating}
+              placeholder={
+                generating
+                  ? "Building your page…"
+                  : pendingPhotoDataUrls.length > 0
+                    ? (isCollection ? "Which product is this for?" : "Add a caption, or just send it.")
+                    : "Tell me about your brand…"
+              }
+              rows={1}
+              style={{ resize: "none", minHeight: "36px", maxHeight: "120px" }}
+              className="flex-1 bg-transparent text-sm text-white placeholder-white/30 focus:outline-none py-1 disabled:opacity-50"
+              onInput={(e) => {
+                const el = e.currentTarget;
+                requestAnimationFrame(() => {
+                  el.style.height = "auto";
+                  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+                });
+              }}
+            />
+            <div className="flex items-center gap-1.5 pb-0.5 shrink-0">
+              <VoiceButton onTranscript={handleVoiceTranscript} disabled={loading || generating} />
+              <button
+                type="button"
+                onClick={() => void sendMessage(input)}
+                disabled={!canSend}
+                className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg shadow-indigo-900/50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5" />
+                  <polyline points="5 12 12 5 19 12" />
+                </svg>
+              </button>
+            </div>
           </div>
+          <p className="text-xs text-white/25 text-center mt-1.5">Enter to send · Mic for voice · 📷 for photo</p>
         </div>
-        <p className="text-xs text-gray-400 text-center mt-1.5">
-          Enter to send · Mic for voice · 📷 for photo
-        </p>
       </div>
+
+      {/* ─── Right: Preview panel (desktop only) ────────────────────────── */}
+      <div className="hidden lg:flex flex-1 flex-col overflow-hidden bg-slate-100">
+        {generatedSlug ? (
+          <>
+            {/* Browser chrome bar */}
+            <div className="h-12 bg-white border-b border-gray-200 flex items-center gap-3 px-4 shrink-0">
+              <div className="flex gap-1.5 shrink-0">
+                <div className="w-3 h-3 rounded-full bg-red-300" />
+                <div className="w-3 h-3 rounded-full bg-yellow-300" />
+                <div className="w-3 h-3 rounded-full bg-green-300" />
+              </div>
+              <div className="flex-1 min-w-0 bg-gray-100 rounded-lg px-3 py-1.5">
+                <p className="text-xs font-mono text-gray-400 truncate">{pageUrl}</p>
+              </div>
+              <a
+                href={`/p/${generatedSlug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-gray-100"
+              >
+                Open
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+              <button
+                onClick={copyLink}
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 shrink-0"
+              >
+                {copied ? "Copied ✓" : "Copy link"}
+              </button>
+            </div>
+            {/* Full page iframe */}
+            <iframe
+              key={previewVersion}
+              src={`/p/${generatedSlug}`}
+              className="flex-1 w-full border-0"
+              title="Page preview"
+            />
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center gap-5 px-8 text-center">
+            <div className="w-20 h-20 rounded-3xl bg-white shadow-md flex items-center justify-center text-4xl text-indigo-200 border border-gray-100">✦</div>
+            <div>
+              <p className="font-semibold text-gray-700 text-xl">Your page will appear here</p>
+              <p className="text-sm mt-2 text-gray-400 leading-relaxed max-w-xs">
+                Tell the AI about your brand and it will build a full payment page in seconds.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
@@ -564,19 +617,19 @@ export function ChatInterface() {
 
 function ChatBubble({ message }: { message: Message }) {
   if (message.role === "preview" && message.previewSlug) {
-    return <PreviewCard slug={message.previewSlug} version={message.previewVersion ?? 0} />;
+    return <PreviewCard slug={message.previewSlug} />;
   }
 
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[78%] flex flex-col gap-1.5 items-end">
+        <div className="max-w-[82%] flex flex-col gap-1.5 items-end">
           {message.imageUrl && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={message.imageUrl} alt="uploaded" className="max-w-[200px] rounded-2xl rounded-tr-sm object-cover shadow-sm border border-white" />
+            <img src={message.imageUrl} alt="uploaded" className="max-w-[160px] rounded-2xl rounded-tr-sm object-cover shadow-sm border border-white/10" />
           )}
           {message.content && (
-            <div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed shadow-sm">
+            <div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-relaxed">
               {message.content}
             </div>
           )}
@@ -587,15 +640,14 @@ function ChatBubble({ message }: { message: Message }) {
 
   return (
     <div className="flex items-start gap-2.5">
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-sm shrink-0 mt-0.5 shadow-sm">✦</div>
-      <div className="max-w-[78%] bg-white border border-gray-100 shadow-sm rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800 leading-relaxed">
+      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xs shrink-0 mt-0.5">✦</div>
+      <div className="max-w-[82%] bg-white/10 border border-white/5 rounded-2xl rounded-tl-sm px-3.5 py-2.5 text-sm text-gray-200 leading-relaxed">
         <MessageText content={message.content} />
       </div>
     </div>
   );
 }
 
-// Renders message text, turning URLs into clickable links
 function MessageText({ content }: { content: string }) {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = content.split(urlRegex);
@@ -604,7 +656,7 @@ function MessageText({ content }: { content: string }) {
       {parts.map((part, i) =>
         urlRegex.test(part) ? (
           <a key={i} href={part} target="_blank" rel="noopener noreferrer"
-            className="text-indigo-600 underline break-all font-medium">
+            className="text-indigo-400 underline break-all font-medium">
             {part}
           </a>
         ) : (
@@ -615,7 +667,7 @@ function MessageText({ content }: { content: string }) {
   );
 }
 
-function PreviewCard({ slug, version }: { slug: string; version: number }) {
+function PreviewCard({ slug }: { slug: string }) {
   const pageUrl = typeof window !== "undefined" ? `${window.location.origin}/p/${slug}` : `/p/${slug}`;
   const [copied, setCopied] = useState(false);
 
@@ -627,39 +679,25 @@ function PreviewCard({ slug, version }: { slug: string; version: number }) {
   }
 
   return (
-    <div className="self-start w-full max-w-sm flex flex-col gap-2 my-1">
-      <div className="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-2xl p-4 text-white shadow-lg shadow-indigo-200">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-lg">🎉</span>
-          <p className="text-sm font-semibold">Your page is live!</p>
-        </div>
-        {/* URL visible as text */}
-        <div className="bg-white/15 rounded-xl px-3 py-2 mb-3 flex items-center gap-2">
-          <span className="text-xs text-white/90 break-all flex-1 font-mono">{pageUrl}</span>
-        </div>
-        <div className="flex gap-2">
-          <a href={`/p/${slug}`} target="_blank" rel="noopener noreferrer"
-            className="flex-1 text-sm font-bold bg-white text-indigo-700 rounded-xl px-3 py-2 hover:bg-indigo-50 transition-colors text-center">
-            Open →
-          </a>
-          <button
-            onClick={copyLink}
-            className="text-sm font-medium text-white bg-white/20 rounded-xl px-3 py-2 hover:bg-white/30 transition-colors min-w-[70px]"
-          >
-            {copied ? "Copied ✓" : "Copy link"}
-          </button>
-        </div>
+    <div className="self-start max-w-[90%] bg-indigo-950/60 border border-indigo-500/30 rounded-2xl p-3.5 flex flex-col gap-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-base">🎉</span>
+        <p className="text-sm font-semibold text-white">Page is live!</p>
       </div>
-      <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
-        <div className="bg-gray-50 px-3 py-1.5 flex items-center justify-between">
-          <span className="text-xs text-gray-400">Live preview</span>
-          <a href={`/p/${slug}`} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline">
-            Open full page ↗
-          </a>
-        </div>
-        <iframe key={version} src={`/p/${slug}`} className="w-full h-64 border-0" title="Page preview" />
+      <div className="bg-white/10 rounded-xl px-2.5 py-1.5">
+        <p className="text-xs font-mono text-white/60 break-all">{pageUrl}</p>
       </div>
-      <p className="text-xs text-gray-400 ml-1">Say "make it pink", "change price to ₹499", or describe any change.</p>
+      <div className="flex gap-2">
+        <a href={`/p/${slug}`} target="_blank" rel="noopener noreferrer"
+          className="flex-1 text-xs font-bold bg-white text-indigo-700 rounded-xl px-3 py-2 hover:bg-indigo-50 transition-colors text-center">
+          Open →
+        </a>
+        <button onClick={copyLink}
+          className="text-xs font-medium text-white bg-white/20 rounded-xl px-3 py-2 hover:bg-white/30 transition-colors min-w-[80px]">
+          {copied ? "Copied ✓" : "Copy link"}
+        </button>
+      </div>
+      <p className="text-xs text-white/30 lg:hidden">Preview visible on larger screens →</p>
     </div>
   );
 }
@@ -667,10 +705,10 @@ function PreviewCard({ slug, version }: { slug: string; version: number }) {
 function TypingIndicator() {
   return (
     <div className="flex items-start gap-2.5">
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-sm shrink-0 shadow-sm">✦</div>
-      <div className="bg-white border border-gray-100 shadow-sm rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
+      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xs shrink-0">✦</div>
+      <div className="bg-white/10 border border-white/5 rounded-2xl rounded-tl-sm px-3.5 py-3 flex items-center gap-1.5">
         {[0, 1, 2].map((i) => (
-          <span key={i} className="w-2 h-2 rounded-full bg-indigo-300 animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
+          <span key={i} className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
         ))}
       </div>
     </div>
@@ -691,9 +729,9 @@ function ContextPills({ context, collectionPhotoCount }: { context: ChatContext;
   if (context.primaryColor) pills.push({ label: context.primaryColor, color: context.primaryColor });
   if (!pills.length) return null;
   return (
-    <div className="px-4 py-2.5 flex flex-wrap gap-1.5 border-t border-gray-100 bg-gray-50/50">
+    <div className="px-4 py-2.5 flex flex-wrap gap-1.5 border-t border-white/10">
       {pills.map((p) => (
-        <span key={p.label} className="text-xs bg-white border border-indigo-100 text-indigo-600 rounded-full px-2.5 py-0.5 font-medium shadow-sm flex items-center gap-1">
+        <span key={p.label} className="text-xs bg-white/10 text-gray-300 rounded-full px-2.5 py-0.5 font-medium flex items-center gap-1">
           {p.color && <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0" style={{ backgroundColor: p.color }} />}
           {p.label}
         </span>
