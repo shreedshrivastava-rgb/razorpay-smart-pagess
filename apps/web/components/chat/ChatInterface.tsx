@@ -83,6 +83,7 @@ export function ChatInterface() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [pendingPhotoDataUrls, setPendingPhotoDataUrls] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -106,7 +107,7 @@ export function ChatInterface() {
         };
         if (parsed.messages?.length) { setMessages(parsed.messages); restoredRef.current = true; }
         if (parsed.context) setContext(parsed.context);
-        if (parsed.generatedSlug) setGeneratedSlug(parsed.generatedSlug);
+        if (parsed.generatedSlug) { setGeneratedSlug(parsed.generatedSlug); setPreviewReady(true); }
         if (typeof parsed.previewVersion === "number") setPreviewVersion(parsed.previewVersion);
       }
     } catch { /* unavailable */ }
@@ -183,6 +184,8 @@ export function ChatInterface() {
       if (slug) {
         setGeneratedSlug(slug);
         setPreviewVersion(0);
+        setPreviewReady(false);
+        setTimeout(() => setPreviewReady(true), 2500);
         try {
           const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
           owned[slug] = true;
@@ -213,7 +216,9 @@ export function ChatInterface() {
       const json = await res.json() as { data?: { slug?: string } };
       if (json.data?.slug) {
         const nextVersion = previewVersion + 1;
+        setPreviewReady(false);
         setPreviewVersion(nextVersion);
+        setTimeout(() => setPreviewReady(true), 2000);
         const msg = "Done! Your page has been updated.";
         addMessage({ role: "assistant", content: msg });
         void speak(msg);
@@ -358,6 +363,11 @@ export function ChatInterface() {
     });
   }
 
+  function refreshPreview() {
+    setPreviewReady(false);
+    setTimeout(() => setPreviewReady(true), 1500);
+  }
+
   const isCollection = context.pageType === "collection" && (context.collectionProducts?.length ?? 0) > 0;
   const collectionPhotoCount = context.collectionProducts?.filter((p) => p.imageUrl).length ?? 0;
   const canSend = (input.trim().length > 0 || pendingPhotoDataUrls.length > 0) && !loading && !generating;
@@ -369,6 +379,7 @@ export function ChatInterface() {
     setInput("");
     setGeneratedSlug(null);
     setPreviewVersion(0);
+    setPreviewReady(false);
     setError("");
     setPendingPhotoDataUrls([]);
     try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
@@ -570,6 +581,13 @@ export function ChatInterface() {
               <div className="flex-1 min-w-0 bg-gray-100 rounded-lg px-3 py-1.5">
                 <p className="text-xs font-mono text-gray-400 truncate">{pageUrl}</p>
               </div>
+              <button
+                onClick={refreshPreview}
+                title="Reload preview"
+                className="text-xs font-medium text-gray-400 hover:text-gray-700 transition-colors px-2 py-1.5 rounded-lg hover:bg-gray-100 shrink-0"
+              >
+                ↺
+              </button>
               <a
                 href={`/p/${generatedSlug}`}
                 target="_blank"
@@ -588,13 +606,23 @@ export function ChatInterface() {
                 {copied ? "Copied ✓" : "Copy link"}
               </button>
             </div>
-            {/* Full page iframe */}
-            <iframe
-              key={previewVersion}
-              src={`/p/${generatedSlug}`}
-              className="flex-1 w-full border-0"
-              title="Page preview"
-            />
+            {/* Full page iframe or loading state */}
+            {previewReady ? (
+              <iframe
+                key={`${generatedSlug}-${previewVersion}`}
+                src={`/p/${generatedSlug}`}
+                className="flex-1 w-full border-0"
+                title="Page preview"
+              />
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
+                <svg className="animate-spin w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <p className="text-sm text-gray-500">Loading preview…</p>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-5 px-8 text-center">
