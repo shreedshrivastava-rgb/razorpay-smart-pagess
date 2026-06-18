@@ -3,7 +3,7 @@
 import type { PageSchema, Section, Brand, Payment } from "@/lib/schema/page-schema";
 import { SectionRenderer } from "@/components/blocks/SectionRenderer";
 import { formatCurrency, cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CartProvider, useCart } from "@/components/cart/CartContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
@@ -122,6 +122,15 @@ function CollectionPageInner({
   payment: Payment;
 }) {
   const { editMode, toggle } = useEditMode();
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    try {
+      const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
+      setIsOwner(!!owned[page.slug]);
+    } catch { /* localStorage unavailable */ }
+  }, [page.slug]);
+
   return (
     <div className={wrapper} style={brandStyle}>
       {editMode && <EditBar page={page} />}
@@ -140,16 +149,18 @@ function CollectionPageInner({
       </div>
       <CheckoutFooter brand={brand} />
       <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
-      {/* Floating edit toggle button */}
-      <button
-        onClick={toggle}
-        title={editMode ? "Exit editing" : "Edit page"}
-        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-xl flex items-center justify-center text-white text-xl transition-all hover:scale-110 active:scale-95"
-        style={{ backgroundColor: editMode ? "#16a34a" : "#6366f1" }}
-        aria-label={editMode ? "Exit editing" : "Edit page"}
-      >
-        {editMode ? "✓" : "✏"}
-      </button>
+      {/* Floating edit toggle — only visible to the page creator */}
+      {isOwner && (
+        <button
+          onClick={toggle}
+          title={editMode ? "Exit editing" : "Edit page"}
+          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-xl flex items-center justify-center text-white text-xl transition-all hover:scale-110 active:scale-95"
+          style={{ backgroundColor: editMode ? "#16a34a" : "#6366f1" }}
+          aria-label={editMode ? "Exit editing" : "Edit page"}
+        >
+          {editMode ? "✓" : "✏"}
+        </button>
+      )}
     </div>
   );
 }

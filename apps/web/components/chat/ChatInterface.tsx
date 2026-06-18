@@ -180,6 +180,12 @@ export function ChatInterface() {
       if (slug) {
         setGeneratedSlug(slug);
         setPreviewVersion(0);
+        // Mark this page as owned by the creator's browser
+        try {
+          const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
+          owned[slug] = true;
+          localStorage.setItem("owned_pages", JSON.stringify(owned));
+        } catch { /* localStorage unavailable */ }
         const origin = typeof window !== "undefined" ? window.location.origin : "";
         const pageUrl = `${origin}/p/${slug}`;
         const preview = `Your page is live! 🔗 ${pageUrl}`;
