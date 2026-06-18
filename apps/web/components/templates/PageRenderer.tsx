@@ -11,7 +11,6 @@ import { EditModeProvider, useEditMode } from "@/components/editor/EditModeConte
 interface PageRendererProps {
   page: PageSchema;
   isPreview?: boolean;
-  editToken?: string;
 }
 
 function sanitizeHexColor(color: string | undefined, fallback: string): string {
@@ -19,8 +18,7 @@ function sanitizeHexColor(color: string | undefined, fallback: string): string {
   return fallback;
 }
 
-export function PageRenderer({ page, isPreview = false, editToken }: PageRendererProps) {
-  const editMode = Boolean(editToken && editToken === page.id);
+export function PageRenderer({ page, isPreview = false }: PageRendererProps) {
   const { brand, sections, payment } = page;
 
   const primaryColor = sanitizeHexColor(brand.primaryColor, "#6366f1");
@@ -69,29 +67,12 @@ export function PageRenderer({ page, isPreview = false, editToken }: PageRendere
     );
   }
 
-  // ── Collection page: multi-product grid with cart, optional edit mode ──
+  // ── Collection page: multi-product grid with cart, always-on inline editing ──
   if (page.pageType === "collection") {
     return (
-      <EditModeProvider enabled={editMode}>
+      <EditModeProvider>
         <CartProvider>
-          <div className={wrapper} style={brandStyle}>
-            {editMode && <EditBar page={page} />}
-            <CollectionNav brand={brand} />
-            <CollectionHero brand={brand} payment={payment} page={page} />
-            <div id="products" className="bg-white">
-              {sections.map((section) => (
-                <SectionRenderer
-                  key={section.id}
-                  section={section}
-                  brand={brand}
-                  onCtaClick={() => {}}
-                  razorpayKeyId={payment.razorpayKeyId}
-                />
-              ))}
-            </div>
-            <CheckoutFooter brand={brand} />
-            <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
-          </div>
+          <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} />
         </CartProvider>
       </EditModeProvider>
     );
@@ -125,6 +106,50 @@ export function PageRenderer({ page, isPreview = false, editToken }: PageRendere
       )}
 
       <CheckoutFooter brand={brand} />
+    </div>
+  );
+}
+
+// ─── Collection page inner (needs useEditMode hook) ──────────────
+function CollectionPageInner({
+  page, wrapper, brandStyle, brand, sections, payment,
+}: {
+  page: PageSchema;
+  wrapper: string;
+  brandStyle: React.CSSProperties;
+  brand: Brand;
+  sections: Section[];
+  payment: Payment;
+}) {
+  const { editMode, toggle } = useEditMode();
+  return (
+    <div className={wrapper} style={brandStyle}>
+      {editMode && <EditBar page={page} />}
+      <CollectionNav brand={brand} />
+      <CollectionHero brand={brand} payment={payment} page={page} />
+      <div id="products" className="bg-white">
+        {sections.map((section) => (
+          <SectionRenderer
+            key={section.id}
+            section={section}
+            brand={brand}
+            onCtaClick={() => {}}
+            razorpayKeyId={payment.razorpayKeyId}
+          />
+        ))}
+      </div>
+      <CheckoutFooter brand={brand} />
+      <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
+      {/* Floating edit toggle button */}
+      <button
+        onClick={toggle}
+        title={editMode ? "Exit editing" : "Edit page"}
+        className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-xl flex items-center justify-center text-white text-xl transition-all hover:scale-110 active:scale-95"
+        style={{ backgroundColor: editMode ? "#16a34a" : "#6366f1" }}
+        aria-label={editMode ? "Exit editing" : "Edit page"}
+      >
+        {editMode ? "✓" : "✏"}
+      </button>
     </div>
   );
 }

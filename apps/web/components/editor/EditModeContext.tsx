@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 
 interface EditModeContextValue {
   editMode: boolean;
+  toggle: () => void;
   fields: Record<string, string>;
   setField: (key: string, value: string) => void;
   saving: boolean;
@@ -15,17 +16,20 @@ interface EditModeContextValue {
 
 const EditModeContext = createContext<EditModeContextValue | null>(null);
 
-export function EditModeProvider({ children, enabled }: { children: ReactNode; enabled: boolean }) {
+export function EditModeProvider({ children }: { children: ReactNode }) {
+  const [editMode, setEditMode] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+
+  const toggle = useCallback(() => setEditMode((v) => !v), []);
 
   const setField = useCallback((key: string, value: string) => {
     setFields((prev) => ({ ...prev, [key]: value }));
   }, []);
 
   return (
-    <EditModeContext.Provider value={{ editMode: enabled, fields, setField, saving, setSaving, saveError, setSaveError }}>
+    <EditModeContext.Provider value={{ editMode, toggle, fields, setField, saving, setSaving, saveError, setSaveError }}>
       {children}
     </EditModeContext.Provider>
   );
