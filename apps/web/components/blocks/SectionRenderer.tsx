@@ -23,24 +23,24 @@ export function SectionRenderer({ section, brand, onCtaClick, razorpayKeyId, sec
 
   switch (section.type) {
     case "hero":
-      return <HeroBlock section={section} brand={brand} onCtaClick={onCtaClick} />;
+      return <HeroBlock section={section} brand={brand} onCtaClick={onCtaClick} sectionIndex={sectionIndex} />;
     case "features":
     case "benefits":
-      return <FeaturesBlock section={section} brand={brand} />;
+      return <FeaturesBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "testimonials":
       return <TestimonialsBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "faq":
       return <FAQBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "cta":
-      return <CTABlock section={section} brand={brand} onCtaClick={onCtaClick} />;
+      return <CTABlock section={section} brand={brand} onCtaClick={onCtaClick} sectionIndex={sectionIndex} />;
     case "trust":
-      return <TrustBadgesBlock section={section} brand={brand} />;
+      return <TrustBadgesBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "stats":
-      return <StatsBlock section={section} brand={brand} />;
+      return <StatsBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "agenda":
-      return <AgendaBlock section={section} brand={brand} />;
+      return <AgendaBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "speakers":
-      return <SpeakersBlock section={section} brand={brand} />;
+      return <SpeakersBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "product-grid":
       return (
         <ProductGridBlock

@@ -94,6 +94,7 @@ function EditPencilInner({ page, isProtected, children }: { page: PageSchema; is
     setSaveErr("");
     try {
       await commitPageEdits(page, fields);
+      setSaving(false);
       clearFields();
       toggle();
       router.refresh();
@@ -1341,10 +1342,11 @@ function EditBar({ page }: { page: PageSchema }) {
     async function onMessage(event: MessageEvent) {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type !== "SMART_PAGES_SAVE") return;
+      let success = true;
       if (Object.keys(fieldsRef.current).length > 0) {
-        try { await handleSave(true); } catch { /* error already set in state */ }
+        try { await handleSave(true); } catch { success = false; }
       }
-      window.parent.postMessage({ type: "SMART_PAGES_SAVE_DONE" }, window.location.origin);
+      window.parent.postMessage({ type: "SMART_PAGES_SAVE_DONE", success }, window.location.origin);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -1362,7 +1364,11 @@ function EditBar({ page }: { page: PageSchema }) {
       <div className="flex items-center gap-2">
         {saveError && <span className="text-red-300 text-xs">{saveError}</span>}
         <button
-          onClick={() => window.location.href = window.location.pathname}
+          onClick={() => {
+            if (hasChanges && !window.confirm("Discard unsaved changes?")) return;
+            clearFields();
+            toggle();
+          }}
           className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/20 transition-colors"
         >
           Cancel

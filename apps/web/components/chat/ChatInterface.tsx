@@ -480,17 +480,17 @@ export function ChatInterface() {
   }
 
   // Asks the preview iframe to PATCH any pending inline edits before we publish the URL
-  function triggerIframeSave(): Promise<void> {
+  function triggerIframeSave(): Promise<boolean> {
     const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return Promise.resolve();
+    if (!iframe?.contentWindow) return Promise.resolve(true);
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, 6000);
+      const timer = setTimeout(() => resolve(true), 6000);
       function onMessage(event: MessageEvent) {
         if (event.origin !== window.location.origin) return;
         if (event.data?.type !== "SMART_PAGES_SAVE_DONE") return;
         clearTimeout(timer);
         window.removeEventListener("message", onMessage);
-        resolve();
+        resolve((event.data as { success?: boolean }).success !== false);
       }
       window.addEventListener("message", onMessage);
       iframe.contentWindow!.postMessage({ type: "SMART_PAGES_SAVE" }, window.location.origin);
@@ -519,11 +519,15 @@ export function ChatInterface() {
         setGeneratedSlug(finalSlug);
         // Update localStorage ownership keys
         try {
-          const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
-          owned[finalSlug] = true; delete owned[generatedSlug];
-          localStorage.setItem("owned_pages", JSON.stringify(owned));
           const token = localStorage.getItem(`edit_token_${generatedSlug}`);
-          if (token) { localStorage.setItem(`edit_token_${finalSlug}`, token); localStorage.removeItem(`edit_token_${generatedSlug}`); }
+          // Write new keys before removing old ones — prevents losing the token if a write fails
+          if (token) localStorage.setItem(`edit_token_${finalSlug}`, token);
+          const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
+          owned[finalSlug] = true;
+          localStorage.setItem("owned_pages", JSON.stringify(owned));
+          if (token) localStorage.removeItem(`edit_token_${generatedSlug}`);
+          delete owned[generatedSlug];
+          localStorage.setItem("owned_pages", JSON.stringify(owned));
         } catch { /* ignore */ }
       }
       setIsPublished(true);

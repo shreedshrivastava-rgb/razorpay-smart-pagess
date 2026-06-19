@@ -168,19 +168,20 @@ function TestimonialCard({
             </p>
           )}
           {editMode && fieldPrefix ? (
-            <input
-              value={[title, company].filter(Boolean).join(", ")}
-              onChange={(e) => {
-                const parts = e.target.value.split(",").map((s) => s.trim());
-                set(`${fieldPrefix}.title`, parts[0] ?? "");
-                set(`${fieldPrefix}.company`, parts[1] ?? "");
-              }}
-              className={cn(
-                "text-xs bg-transparent border-b border-indigo-100 focus:border-indigo-300 outline-none w-full mt-0.5",
-                isDark ? "text-white/50" : "text-gray-400"
-              )}
-              placeholder="Title, Company (comma-separated)"
-            />
+            <div className="flex gap-1 mt-0.5">
+              <input
+                value={title}
+                onChange={(e) => set(`${fieldPrefix}.title`, e.target.value)}
+                className={cn("text-xs bg-transparent border-b border-indigo-100 focus:border-indigo-300 outline-none min-w-0 flex-1", isDark ? "text-white/50" : "text-gray-400")}
+                placeholder="Title"
+              />
+              <input
+                value={company}
+                onChange={(e) => set(`${fieldPrefix}.company`, e.target.value)}
+                className={cn("text-xs bg-transparent border-b border-indigo-100 focus:border-indigo-300 outline-none min-w-0 flex-1", isDark ? "text-white/50" : "text-gray-400")}
+                placeholder="Company"
+              />
+            </div>
           ) : (
             (title || company) && (
               <p className={cn("text-xs", isDark ? "text-white/50" : "text-gray-400")}>

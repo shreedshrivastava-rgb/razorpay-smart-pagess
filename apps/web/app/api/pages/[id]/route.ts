@@ -14,11 +14,13 @@ function checkDeleteRateLimit(ip: string): boolean {
 }
 
 function checkCsrf(req: NextRequest): boolean {
-  const origin = req.headers.get("origin");
   const host = req.headers.get("host");
-  if (!origin || !host) return false;
+  if (!host) return false;
+  // Check Origin first; fall back to Referer for clients that omit Origin
+  const source = req.headers.get("origin") ?? req.headers.get("referer");
+  if (!source) return false;
   try {
-    return new URL(origin).host === host;
+    return new URL(source).host === host;
   } catch {
     return false;
   }
