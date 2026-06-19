@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { buildFullPage } from "@/lib/ai/generate-page";
-import { savePage, ensureUniqueSlug } from "@/lib/store/pages";
+import { savePage, ensureUniqueSlug, isPageOwner } from "@/lib/store/pages";
+import { ownerId } from "@/auth";
 import type { WizardInput } from "@/lib/schema/page-schema";
 
 // Simple in-memory rate limit: max 5 generations per IP per minute
@@ -26,10 +27,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Too many requests. Try again in a minute." }, { status: 429 });
   }
 
+  const owner = await ownerId();
+  if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const reqId = Math.random().toString(36).slice(2, 10).toUpperCase();
   try {
     const body = await req.json() as WizardInput & { existingSlug?: string };
     const { existingSlug, ...input } = body;
+
+    // Regenerating an existing page — caller must own it.
+    if (existingSlug && !(await isPageOwner(existingSlug, owner))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     if (!input.pageType) {
       return NextResponse.json({ error: "pageType is required" }, { status: 400 });
@@ -55,7 +64,7 @@ export async function POST(req: NextRequest) {
     }
 
     const editToken = randomBytes(16).toString("hex");
-    await savePage(page, editToken);
+    await savePage(page, editToken, owner);
 
     return NextResponse.json({ success: true, data: { ...page, editToken } });
   } catch (error) {

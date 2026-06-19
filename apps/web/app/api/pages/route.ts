@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllPages, savePage } from "@/lib/store/pages";
+import { ownerId } from "@/auth";
 import type { PageSchema } from "@/lib/schema/page-schema";
 
 export async function GET() {
+  const owner = await ownerId();
+  if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const pages = await getAllPages();
+    const pages = await getAllPages(owner);
     return NextResponse.json({ success: true, data: pages });
   } catch (error) {
     console.error("List pages error:", error);
@@ -13,9 +16,11 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const owner = await ownerId();
+  if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const page: PageSchema = await req.json();
-    await savePage(page);
+    await savePage(page, undefined, owner);
     return NextResponse.json({ success: true, data: page });
   } catch (error) {
     console.error("Save page error:", error);

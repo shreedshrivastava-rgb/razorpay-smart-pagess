@@ -7,9 +7,19 @@ import { unstable_noStore as noStore } from "next/cache";
 // When BLOB_READ_WRITE_TOKEN is set (Blob store connected), pages are stored as
 // JSON objects in Blob. Falls back to in-memory + /tmp for local dev.
 
-// StoredPage is what lives in the blob/file. The _editToken field is internal:
-// it is never returned to callers of getPage() and never serialized to the client.
-type StoredPage = PageSchema & { _editToken?: string };
+// StoredPage is what lives in the blob/file. The _editToken and _ownerId fields
+// are internal: they are never returned to callers of getPage() and never
+// serialized to the client. _ownerId is the email of the user who owns the page.
+type StoredPage = PageSchema & { _editToken?: string; _ownerId?: string };
+
+// Legacy pages created before auth have no _ownerId. They're attributed to the
+// email in PRIMARY_OWNER_EMAIL (if set) so an existing workspace isn't orphaned;
+// otherwise they belong to nobody and are hidden from every user's list.
+function ownsPage(stored: StoredPage, ownerId: string): boolean {
+  if (stored._ownerId) return stored._ownerId === ownerId;
+  const primary = process.env.PRIMARY_OWNER_EMAIL;
+  return Boolean(primary) && primary === ownerId;
+}
 
 function blobAvailable() {
   // BLOB_READ_WRITE_TOKEN: manual token (local dev / explicit setup)
@@ -75,7 +85,7 @@ async function blobGet(slug: string): Promise<PageSchema | null> {
   return raw ? stripToken(raw) : null;
 }
 
-async function blobGetAll(): Promise<PageSchema[]> {
+async function blobGetAll(ownerId?: string): Promise<PageSchema[]> {
   const { list, get } = await import("@vercel/blob");
   const { blobs } = await list({ prefix: "pages/" });
   const pages = await Promise.all(
@@ -84,7 +94,9 @@ async function blobGetAll(): Promise<PageSchema[]> {
         const result = await get(blob.pathname, { access: "private" });
         if (!result?.stream) return null;
         const text = await readStream(result.stream);
-        return stripToken(JSON.parse(text) as StoredPage);
+        const stored = JSON.parse(text) as StoredPage;
+        if (ownerId && !ownsPage(stored, ownerId)) return null;
+        return stripToken(stored);
       } catch {
         return null;
       }
@@ -156,13 +168,17 @@ async function writePages(pages: Record<string, StoredPage>) {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export async function savePage(page: PageSchema, editToken?: string): Promise<void> {
-  console.log(`[audit] savePage slug="${page.slug}" id="${page.id}" at=${new Date().toISOString()}`);
+export async function savePage(page: PageSchema, editToken?: string, ownerId?: string): Promise<void> {
+  console.log(`[audit] savePage slug="${page.slug}" id="${page.id}" owner="${ownerId ?? "-"}" at=${new Date().toISOString()}`);
+  const meta = {
+    ...(editToken ? { _editToken: editToken } : {}),
+    ...(ownerId ? { _ownerId: ownerId } : {}),
+  };
   if (blobAvailable()) {
     const baseSlug = page.slug;
     for (let attempt = 0; attempt < 10; attempt++) {
       const slug = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`;
-      const stored: StoredPage = editToken ? { _editToken: editToken, ...page, slug } : { ...page, slug };
+      const stored: StoredPage = { ...meta, ...page, slug };
       const saved = await blobSaveRaw(stored, false);
       if (saved) {
         page.slug = slug;
@@ -180,7 +196,7 @@ export async function savePage(page: PageSchema, editToken?: string): Promise<vo
     throw new Error("Could not save page: too many slug collisions");
   }
   return withLock(async () => {
-    const stored: StoredPage = editToken ? { _editToken: editToken, ...page } : page;
+    const stored: StoredPage = { ...meta, ...page };
     const pages = await readPages();
     pages[page.slug] = stored;
     await writePages(pages);
@@ -226,12 +242,27 @@ export async function getPageEditToken(slug: string): Promise<string | null> {
   return pages[slug]?._editToken ?? null;
 }
 
-export async function getAllPages(): Promise<PageSchema[]> {
-  if (blobAvailable()) return blobGetAll();
+// True if `ownerId` is allowed to manage the page at `slug`. Legacy unowned
+// pages resolve to PRIMARY_OWNER_EMAIL via ownsPage().
+export async function isPageOwner(slug: string, ownerId: string): Promise<boolean> {
+  noStore();
+  let stored: StoredPage | null | undefined;
+  if (blobAvailable()) {
+    stored = await blobGetRaw(slug);
+  } else {
+    const pages = await readPages();
+    stored = pages[slug];
+  }
+  return stored ? ownsPage(stored, ownerId) : false;
+}
+
+export async function getAllPages(ownerId?: string): Promise<PageSchema[]> {
+  if (blobAvailable()) return blobGetAll(ownerId);
   const pages = await readPages();
-  return Object.values(pages).map(stripToken).sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  return Object.values(pages)
+    .filter((p) => !ownerId || ownsPage(p, ownerId))
+    .map(stripToken)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 // Moves a draft to the live namespace and marks it published.

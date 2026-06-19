@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { getPage, getPageEditToken, updatePage, deletePage } from "@/lib/store/pages";
+import { getPage, getPageEditToken, updatePage, deletePage, isPageOwner } from "@/lib/store/pages";
+import { ownerId } from "@/auth";
+import type { PageSchema } from "@/lib/schema/page-schema";
 
 const deleteRateLimit = new Map<string, { count: number; resetAt: number }>();
 function checkDeleteRateLimit(ip: string): boolean {
@@ -27,13 +29,28 @@ function checkCsrf(req: NextRequest): boolean {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Page data here is for editing — only the owner may read it.
+  const owner = await ownerId();
+  if (!owner || !(await isPageOwner(id, owner))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const page = await getPage(id);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
-  return NextResponse.json({ success: true, data: page });
+
+  // The owner opening a page for editing may request its edit token so they can
+  // preview drafts via /p/<slug>?preview=<token>.
+  let editToken: string | null = null;
+  if (req.nextUrl.searchParams.get("withToken") === "1" && checkCsrf(req)) {
+    editToken = await getPageEditToken(id);
+  }
+
+  return NextResponse.json({ success: true, data: page as PageSchema, editToken });
 }
 
 export async function PATCH(
@@ -44,6 +61,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const { id } = await params;
+
+  const owner = await ownerId();
+  if (!owner || !(await isPageOwner(id, owner))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const storedToken = await getPageEditToken(id);
   const providedToken = req.headers.get("x-edit-token");
@@ -70,6 +92,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
   const { id } = await params;
+
+  const owner = await ownerId();
+  if (!owner || !(await isPageOwner(id, owner))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   await deletePage(id);
   return NextResponse.json({ success: true });
 }

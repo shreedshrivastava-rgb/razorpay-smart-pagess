@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { getAllPages } from "@/lib/store/pages";
+import { ownerId } from "@/auth";
 import { PageCard } from "@/components/dashboard/PageCard";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardHome() {
-  const pages = await getAllPages();
+  const owner = await ownerId();
+  const pages = owner ? await getAllPages(owner) : [];
 
   return (
     <div className="min-h-screen bg-gray-50">

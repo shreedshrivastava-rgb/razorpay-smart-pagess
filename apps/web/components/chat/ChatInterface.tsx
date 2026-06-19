@@ -3,7 +3,50 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { VoiceButton } from "./VoiceButton";
 import type { ChatContext } from "@/app/api/chat/route";
-import type { WizardInput } from "@/lib/schema/page-schema";
+import type { PageSchema, WizardInput } from "@/lib/schema/page-schema";
+
+// Reconstruct the chat context from a stored page so the AI can keep editing it
+// faithfully (rather than regenerating from an empty context and losing fields).
+function pageToContext(page: PageSchema): ChatContext {
+  const grid = page.sections?.find((s) => s.type === "product-grid") as
+    | { items?: Array<{ name: string; price: number; maxPrice?: number; imageUrl?: string }> }
+    | undefined;
+  const ctx: ChatContext = {
+    brandName: page.brand?.name,
+    primaryColor: page.brand?.primaryColor,
+    secondaryColor: page.brand?.secondaryColor,
+    pageType: page.pageType,
+    productName: page.payment?.name,
+    description: page.payment?.description,
+    priceRupees: page.payment?.amount != null ? Math.round(page.payment.amount) / 100 : undefined,
+    originalPriceRupees: page.payment?.originalAmount != null ? Math.round(page.payment.originalAmount) / 100 : undefined,
+    productBullets: page.productBullets,
+    productImageUrl: page.productImageUrl,
+    productImages: page.productImages,
+    variants: page.variants,
+    maxQuantity: page.maxQuantity,
+    urgencyEndsAt: page.urgencyEndsAt,
+    stockCount: page.stockCount,
+    isPreOrder: page.isPreOrder,
+    deliveryLabel: page.deliveryLabel,
+    reviewCount: page.reviewCount,
+    averageRating: page.averageRating,
+    customFields: page.payment?.customFields,
+  };
+  if (page.payment?.couponConfig) {
+    ctx.couponCode = page.payment.couponConfig.code;
+    ctx.couponDiscount = page.payment.couponConfig.discountPercent;
+  }
+  if (page.pageType === "collection" && grid?.items?.length) {
+    ctx.collectionProducts = grid.items.map((it) => ({
+      name: it.name,
+      price: Math.round(it.price) / 100,
+      maxPrice: it.maxPrice != null ? Math.round(it.maxPrice) / 100 : undefined,
+      imageUrl: it.imageUrl,
+    }));
+  }
+  return ctx;
+}
 
 interface Message {
   id: string;
@@ -112,6 +155,7 @@ export function ChatInterface() {
   const sessionIdRef = useRef(0);
   const restoredRef = useRef(false);
   const storageWarnedRef = useRef(false);
+  const initialPromptSentRef = useRef(false);
 
   const pageUrl = generatedSlug
     ? `${typeof window !== "undefined" ? window.location.origin : ""}/p/${generatedSlug}`
@@ -136,8 +180,9 @@ export function ChatInterface() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Restore from sessionStorage
+  // Restore from sessionStorage (skipped when deep-linking to a specific page via ?slug=)
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("slug")) return;
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -150,7 +195,6 @@ export function ChatInterface() {
         if (parsed.generatedSlug) {
           setGeneratedSlug(parsed.generatedSlug);
           setPreviewReady(true);
-          setIsPublished(true);
           try {
             const token = localStorage.getItem(`edit_token_${parsed.generatedSlug}`);
             if (token) setGeneratedEditToken(token);
@@ -184,6 +228,60 @@ export function ChatInterface() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, generating, pendingPhotoDataUrls]);
 
   useEffect(() => { if (!restoredRef.current) void speak(GREETING.content); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-send an initial prompt handed off from the landing page (/chat?prompt=...)
+  useEffect(() => {
+    if (initialPromptSentRef.current || restoredRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("slug")) return; // slug deep-links are handled below
+    const initial = params.get("prompt");
+    if (initial && initial.trim()) {
+      initialPromptSentRef.current = true;
+      // Strip the query param so a refresh doesn't resend it
+      window.history.replaceState({}, "", window.location.pathname);
+      void sendMessage(initial.trim());
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Open an existing page in the chat + preview interface (/chat?slug=...)
+  useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get("slug");
+    if (!slug) return;
+    restoredRef.current = true; // suppress greeting TTS and prompt auto-send
+    stopAudio();
+    window.history.replaceState({}, "", window.location.pathname);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/pages/${encodeURIComponent(slug)}?withToken=1`, { cache: "no-store" });
+        if (!res.ok) throw new Error("not found");
+        const json = await res.json() as { data?: PageSchema; editToken?: string | null };
+        const page = json.data;
+        if (!page || cancelled) return;
+        const ctx = pageToContext(page);
+        setContext(ctx);
+        setGeneratedSlug(page.slug);
+        setIsPublished(true);
+        setPreviewReady(true);
+        setPreviewVersion(0);
+        // Prefer the server-provided token (works for drafts in any browser); fall back to localStorage.
+        let token = json.editToken ?? null;
+        try {
+          if (!token) token = localStorage.getItem(`edit_token_${page.slug}`);
+          if (token) localStorage.setItem(`edit_token_${page.slug}`, token);
+        } catch { /* localStorage unavailable */ }
+        if (token) setGeneratedEditToken(token);
+        const brandName = page.brand?.name ?? "your page";
+        setMessages([
+          { id: "greeting", role: "assistant", content: `Here's **${brandName}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
+          { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: 0 },
+        ]);
+      } catch {
+        if (!cancelled) setError("Couldn't load that page. It may have been deleted.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addMessage = useCallback((msg: Omit<Message, "id">) => {
     setMessages((prev) => [...prev, { ...msg, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` }]);
@@ -260,13 +358,14 @@ export function ChatInterface() {
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
-  async function pollUntilReady(slug: string, mySession: number): Promise<void> {
+  async function pollUntilReady(slug: string, mySession: number, previewToken?: string | null): Promise<void> {
+    const url = previewToken ? `/p/${slug}?preview=${previewToken}` : `/p/${slug}`;
     const MAX = 20;
     for (let i = 0; i < MAX; i++) {
       await new Promise<void>((r) => setTimeout(r, 600));
       if (sessionIdRef.current !== mySession) return;
       try {
-        const check = await fetch(`/p/${slug}`, { method: "HEAD", cache: "no-store" });
+        const check = await fetch(url, { method: "HEAD", cache: "no-store" });
         if (check.ok) { setPreviewReady(true); return; }
       } catch { /* network hiccup — retry */ }
     }
@@ -293,7 +392,7 @@ export function ChatInterface() {
         setGeneratedEditToken(editToken ?? null);
         setPreviewVersion(0);
         setPreviewReady(false);
-        void pollUntilReady(slug, mySession);
+        void pollUntilReady(slug, mySession, editToken);
         try {
           const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
           owned[slug] = true;
@@ -563,7 +662,7 @@ export function ChatInterface() {
     if (!generatedSlug) return;
     setPreviewReady(false);
     setPreviewVersion((v) => v + 1);
-    void pollUntilReady(generatedSlug, sessionIdRef.current);
+    void pollUntilReady(generatedSlug, sessionIdRef.current, generatedEditToken);
   }
 
   const isCollection = context.pageType === "collection" && (context.collectionProducts?.length ?? 0) > 0;
@@ -870,7 +969,7 @@ export function ChatInterface() {
                 <iframe
                   ref={iframeRef}
                   key={`${generatedSlug}-${previewVersion}`}
-                  src={`/p/${generatedSlug}${generatedEditToken && !isPublished ? `?preview=${generatedEditToken}` : ""}`}
+                  src={`/p/${generatedSlug}${generatedEditToken ? `?preview=${generatedEditToken}` : ""}`}
                   className="absolute inset-0 w-full h-full border-0"
                   title="Page preview"
                 />

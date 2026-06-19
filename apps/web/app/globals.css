@@ -105,3 +105,57 @@ html {
   background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%);
   animation: beam 2.5s ease-in-out infinite;
 }
+
+/* Lovable-style aurora hero backdrop */
+.aurora-base {
+  background:
+    linear-gradient(180deg, #ffffff 0%, rgba(255,255,255,0) 45%),
+    radial-gradient(110% 80% at 50% 0%, #dbeafe 0%, #ffffff 62%);
+}
+
+.aurora-blob {
+  background:
+    radial-gradient(42% 50% at 38% 22%, rgba(51,149,255,0.40) 0%, transparent 70%),
+    radial-gradient(45% 55% at 64% 32%, rgba(96,165,250,0.38) 0%, transparent 72%),
+    radial-gradient(58% 56% at 50% 60%, rgba(147,197,253,0.42) 0%, transparent 74%),
+    radial-gradient(50% 52% at 50% 88%, rgba(219,234,254,0.55) 0%, transparent 75%);
+  filter: blur(70px) saturate(1.1);
+  opacity: 0.9;
+  animation: aurora-drift 16s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-drift {
+  0%   { transform: translateX(-50%) translateY(0) scale(1); }
+  50%  { transform: translateX(-48%) translateY(18px) scale(1.06); }
+  100% { transform: translateX(-52%) translateY(-12px) scale(1.03); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob { animation: none; }
+}
+
+/* Colorful flowing liquid backdrop (sign-in showcase) */
+.liquid-stage { position: absolute; inset: 0; overflow: hidden; }
+.liquid-stage .lq-base {
+  position: absolute; inset: 0;
+  background: linear-gradient(160deg, #eff6ff 0%, #dbeafe 50%, #e0f7ff 100%);
+}
+.liquid-stage .lq {
+  position: absolute; border-radius: 9999px;
+  filter: blur(70px) saturate(1.1); will-change: transform;
+}
+.liquid-stage .lq-1 { width: 58%; height: 58%; left: -8%; top: -12%; background: #60a5fa; opacity: .55; animation: lq-1 17s ease-in-out infinite alternate; }
+.liquid-stage .lq-2 { width: 62%; height: 62%; right: -12%; top: -4%; background: #93c5fd; opacity: .5;  animation: lq-2 21s ease-in-out infinite alternate; }
+.liquid-stage .lq-3 { width: 66%; height: 66%; left: 6%;   bottom: -18%; background: #38bdf8; opacity: .6;  animation: lq-3 19s ease-in-out infinite alternate; }
+.liquid-stage .lq-4 { width: 52%; height: 52%; right: 2%;  bottom: -8%; background: #3b82f6; opacity: .45; animation: lq-4 23s ease-in-out infinite alternate; }
+.liquid-stage .lq-5 { width: 50%; height: 50%; left: 34%;  top: 28%; background: #ffffff; opacity: .6;  animation: lq-5 25s ease-in-out infinite alternate; }
+
+@keyframes lq-1 { 0% { transform: translate(0,0) scale(1); }     100% { transform: translate(26%,20%) scale(1.28); } }
+@keyframes lq-2 { 0% { transform: translate(0,0) scale(1.12); }  100% { transform: translate(-22%,24%) scale(.9); } }
+@keyframes lq-3 { 0% { transform: translate(0,0) scale(1); }     100% { transform: translate(20%,-22%) scale(1.22); } }
+@keyframes lq-4 { 0% { transform: translate(0,0) scale(.95); }   100% { transform: translate(-24%,-16%) scale(1.25); } }
+@keyframes lq-5 { 0% { transform: translate(0,0) scale(1); }     100% { transform: translate(-16%,-20%) scale(1.34); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-stage .lq { animation: none; }
+}

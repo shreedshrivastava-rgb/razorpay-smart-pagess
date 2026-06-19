@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPage, getPageEditToken, ensureUniqueSlug, publishPage } from "@/lib/store/pages";
+import { getPage, getPageEditToken, ensureUniqueSlug, publishPage, isPageOwner } from "@/lib/store/pages";
+import { ownerId } from "@/auth";
 
 export async function POST(req: NextRequest) {
+  const owner = await ownerId();
+  if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   let body: { fromSlug: string; toSlug: string };
   try {
     body = await req.json() as { fromSlug: string; toSlug: string };
@@ -17,6 +21,10 @@ export async function POST(req: NextRequest) {
   const clean = toSlug.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
   if (!clean || !/^[a-z0-9]/.test(clean)) {
     return NextResponse.json({ error: "Slug must start with a letter or number" }, { status: 400 });
+  }
+
+  if (!(await isPageOwner(fromSlug, owner))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const [page, editToken] = await Promise.all([
