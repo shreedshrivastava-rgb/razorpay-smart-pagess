@@ -137,11 +137,6 @@ export default async function SignInPage({
             <span className="lq lq-5" />
           </div>
 
-          {/* Badge — pinned to the corner so it never overlaps the heading */}
-          <div className="absolute right-8 top-8 z-20 rounded-xl bg-slate-900/90 px-3.5 py-2 text-sm font-semibold text-white shadow-lg backdrop-blur">
-            <span className="mr-1.5">⚡</span> Powered by Claude AI
-          </div>
-
           {/* Content — centered cluster, no trailing dead space */}
           <div className="relative z-10 flex h-full flex-col justify-center px-10 py-7">
             {/* Heading */}
