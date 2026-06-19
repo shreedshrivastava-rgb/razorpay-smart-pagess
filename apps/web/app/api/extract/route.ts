@@ -6,11 +6,20 @@ function normalizeAndValidate(raw: string): { url: string } | { error: string; s
   const normalized = raw.startsWith("http") ? raw : `https://${raw}`;
   if (!isValidUrl(normalized)) return { error: "Invalid URL", status: 400 };
   const { hostname } = new URL(normalized);
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 brackets
   if (
-    hostname === "localhost" ||
-    hostname.startsWith("192.168.") ||
-    hostname.startsWith("10.") ||
-    hostname.startsWith("127.")
+    h === "localhost" ||
+    h === "::1" ||
+    h === "0:0:0:0:0:0:0:1" ||
+    /^fe[89ab][0-9a-f]:/i.test(h) || // link-local fe80::/10
+    /^f[cd][0-9a-f]{2}:/i.test(h) ||  // ULA fc00::/7
+    h.startsWith("127.") ||
+    h.startsWith("10.") ||
+    h.startsWith("192.168.") ||
+    h.startsWith("169.254.") ||       // link-local
+    /^172\.(1[6-9]|2[0-9]|3[01])\./.test(h) || // 172.16–31
+    /^\d+$/.test(h) ||                 // integer-form IP (e.g. 2130706433)
+    h.startsWith("0x")                 // hex-form IP (e.g. 0x7f000001)
   ) {
     return { error: "Private URLs not allowed", status: 400 };
   }

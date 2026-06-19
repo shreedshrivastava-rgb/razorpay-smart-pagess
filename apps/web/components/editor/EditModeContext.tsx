@@ -7,6 +7,8 @@ interface EditModeContextValue {
   editMode: boolean;
   toggle: () => void;
   enable: () => void;
+  activeField: string | null;
+  setActiveField: (key: string | null) => void;
   fields: Record<string, string>;
   setField: (key: string, value: string) => void;
   saving: boolean;
@@ -19,6 +21,7 @@ const EditModeContext = createContext<EditModeContextValue | null>(null);
 
 export function EditModeProvider({ children }: { children: ReactNode }) {
   const [editMode, setEditMode] = useState(false);
+  const [activeField, setActiveField] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -31,7 +34,7 @@ export function EditModeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <EditModeContext.Provider value={{ editMode, toggle, enable, fields, setField, saving, setSaving, saveError, setSaveError }}>
+    <EditModeContext.Provider value={{ editMode, toggle, enable, activeField, setActiveField, fields, setField, saving, setSaving, saveError, setSaveError }}>
       {children}
     </EditModeContext.Provider>
   );

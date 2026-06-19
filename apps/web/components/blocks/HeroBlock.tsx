@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { HeroSection, Brand } from "@/lib/schema/page-schema";
 import { cn } from "@/lib/utils";

@@ -1,12 +1,11 @@
 import type { TrustBadgesSection, Brand } from "@/lib/schema/page-schema";
-import { cn } from "@/lib/utils";
 
 interface TrustBadgesBlockProps {
   section: TrustBadgesSection;
   brand: Brand;
 }
 
-export function TrustBadgesBlock({ section, brand }: TrustBadgesBlockProps) {
+export function TrustBadgesBlock({ section }: TrustBadgesBlockProps) {
   return (
     <section className="py-10 bg-white border-y border-gray-100">
       <div className="container mx-auto px-4 max-w-6xl">

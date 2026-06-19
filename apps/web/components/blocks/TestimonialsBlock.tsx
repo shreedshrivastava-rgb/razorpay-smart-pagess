@@ -1,13 +1,29 @@
+"use client";
+
 import type { TestimonialsSection, Brand } from "@/lib/schema/page-schema";
 import { cn } from "@/lib/utils";
+import { useEditModeOptional } from "@/components/editor/EditModeContext";
 
 interface TestimonialsBlockProps {
   section: TestimonialsSection;
   brand: Brand;
+  sectionIndex?: number;
 }
 
-export function TestimonialsBlock({ section, brand }: TestimonialsBlockProps) {
+export function TestimonialsBlock({ section, brand, sectionIndex }: TestimonialsBlockProps) {
+  const ctx = useEditModeOptional();
+  const editMode = ctx?.editMode ?? false;
   const isDark = section.background === "dark";
+
+  function val(path: string, fallback: string) {
+    return ctx?.fields[path] ?? fallback;
+  }
+  function set(path: string, value: string) {
+    ctx?.setField(path, value);
+  }
+  const pfx = sectionIndex !== undefined ? `sections.${sectionIndex}` : null;
+
+  const headline = pfx ? val(`${pfx}.headline`, section.headline) : section.headline;
 
   return (
     <section
@@ -25,19 +41,39 @@ export function TestimonialsBlock({ section, brand }: TestimonialsBlockProps) {
     >
       <div className="container mx-auto px-4 max-w-6xl">
         <div className="text-center mb-12">
-          <h2
-            className={cn(
-              "text-3xl md:text-4xl font-bold tracking-tight",
-              isDark || section.background === "brand" ? "text-white" : "text-gray-900"
-            )}
-          >
-            {section.headline}
-          </h2>
+          {editMode && pfx ? (
+            <input
+              value={headline}
+              onChange={(e) => set(`${pfx}.headline`, e.target.value)}
+              className={cn(
+                "text-3xl md:text-4xl font-bold tracking-tight bg-transparent border-b-2 border-indigo-300 focus:border-indigo-500 outline-none text-center w-full",
+                isDark || section.background === "brand" ? "text-white" : "text-gray-900"
+              )}
+            />
+          ) : (
+            <h2
+              className={cn(
+                "text-3xl md:text-4xl font-bold tracking-tight",
+                isDark || section.background === "brand" ? "text-white" : "text-gray-900"
+              )}
+            >
+              {headline}
+            </h2>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {section.items.map((t, i) => (
-            <TestimonialCard key={i} testimonial={t} isDark={isDark} brand={brand} />
+            <TestimonialCard
+              key={i}
+              testimonial={t}
+              isDark={isDark}
+              brand={brand}
+              editMode={editMode && pfx !== null}
+              fieldPrefix={pfx ? `${pfx}.items.${i}` : null}
+              val={val}
+              set={set}
+            />
           ))}
         </div>
       </div>
@@ -49,18 +85,24 @@ function TestimonialCard({
   testimonial,
   isDark,
   brand,
+  editMode,
+  fieldPrefix,
+  val,
+  set,
 }: {
-  testimonial: {
-    name: string;
-    title?: string;
-    company?: string;
-    avatar?: string;
-    rating: number;
-    text: string;
-  };
+  testimonial: { name: string; title?: string; company?: string; avatar?: string; rating: number; text: string };
   isDark: boolean;
   brand: Brand;
+  editMode: boolean;
+  fieldPrefix: string | null;
+  val: (path: string, fallback: string) => string;
+  set: (path: string, value: string) => void;
 }) {
+  const text = fieldPrefix ? val(`${fieldPrefix}.text`, testimonial.text) : testimonial.text;
+  const name = fieldPrefix ? val(`${fieldPrefix}.name`, testimonial.name) : testimonial.name;
+  const title = fieldPrefix ? val(`${fieldPrefix}.title`, testimonial.title ?? "") : (testimonial.title ?? "");
+  const company = fieldPrefix ? val(`${fieldPrefix}.company`, testimonial.company ?? "") : (testimonial.company ?? "");
+
   return (
     <div
       className={cn(
@@ -85,14 +127,21 @@ function TestimonialCard({
       </div>
 
       {/* Quote */}
-      <p
-        className={cn(
-          "text-sm leading-relaxed flex-1",
-          isDark ? "text-white/80" : "text-gray-600"
-        )}
-      >
-        &ldquo;{testimonial.text}&rdquo;
-      </p>
+      {editMode && fieldPrefix ? (
+        <textarea
+          value={text}
+          onChange={(e) => set(`${fieldPrefix}.text`, e.target.value)}
+          rows={3}
+          className={cn(
+            "text-sm leading-relaxed flex-1 bg-transparent border border-indigo-200 focus:border-indigo-400 outline-none rounded-lg p-2 resize-none w-full",
+            isDark ? "text-white/80 border-white/30" : "text-gray-600"
+          )}
+        />
+      ) : (
+        <p className={cn("text-sm leading-relaxed flex-1", isDark ? "text-white/80" : "text-gray-600")}>
+          &ldquo;{text}&rdquo;
+        </p>
+      )}
 
       {/* Author */}
       <div className="flex items-center gap-3 pt-2 border-t border-gray-100/20">
@@ -100,16 +149,44 @@ function TestimonialCard({
           className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold flex-shrink-0"
           style={{ backgroundColor: brand.primaryColor }}
         >
-          {testimonial.name[0].toUpperCase()}
+          {name[0]?.toUpperCase() ?? "?"}
         </div>
-        <div>
-          <p className={cn("text-sm font-semibold", isDark ? "text-white" : "text-gray-900")}>
-            {testimonial.name}
-          </p>
-          {(testimonial.title || testimonial.company) && (
-            <p className={cn("text-xs", isDark ? "text-white/50" : "text-gray-400")}>
-              {[testimonial.title, testimonial.company].filter(Boolean).join(", ")}
+        <div className="flex-1 min-w-0">
+          {editMode && fieldPrefix ? (
+            <input
+              value={name}
+              onChange={(e) => set(`${fieldPrefix}.name`, e.target.value)}
+              className={cn(
+                "text-sm font-semibold bg-transparent border-b border-indigo-200 focus:border-indigo-400 outline-none w-full",
+                isDark ? "text-white" : "text-gray-900"
+              )}
+              placeholder="Reviewer name"
+            />
+          ) : (
+            <p className={cn("text-sm font-semibold", isDark ? "text-white" : "text-gray-900")}>
+              {name}
             </p>
+          )}
+          {editMode && fieldPrefix ? (
+            <input
+              value={[title, company].filter(Boolean).join(", ")}
+              onChange={(e) => {
+                const parts = e.target.value.split(",").map((s) => s.trim());
+                set(`${fieldPrefix}.title`, parts[0] ?? "");
+                set(`${fieldPrefix}.company`, parts[1] ?? "");
+              }}
+              className={cn(
+                "text-xs bg-transparent border-b border-indigo-100 focus:border-indigo-300 outline-none w-full mt-0.5",
+                isDark ? "text-white/50" : "text-gray-400"
+              )}
+              placeholder="Title, Company (comma-separated)"
+            />
+          ) : (
+            (title || company) && (
+              <p className={cn("text-xs", isDark ? "text-white/50" : "text-gray-400")}>
+                {[title, company].filter(Boolean).join(", ")}
+              </p>
+            )
           )}
         </div>
       </div>

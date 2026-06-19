@@ -69,6 +69,17 @@ function useTTS() {
 // ─── ChatInterface ────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "razorpay_chat_state";
+const HISTORY_KEY = "razorpay_page_history";
+
+interface ChatSession {
+  id: string;
+  slug: string;
+  brandName: string;
+  timestamp: number;
+  messages: Message[];
+  context: ChatContext;
+  previewVersion: number;
+}
 
 export function ChatInterface() {
   const { speak, stop: stopAudio } = useTTS();
@@ -82,21 +93,47 @@ export function ChatInterface() {
   const [error, setError] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [pendingPhotoDataUrls, setPendingPhotoDataUrls] = useState<string[]>([]);
-  const [copied, setCopied] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
-  const [editToolActive, setEditToolActive] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [isPublished, setIsPublished] = useState(false);
+  const [publishModalOpen, setPublishModalOpen] = useState(false);
+  const [publishSlug, setPublishSlug] = useState("");
+  const [publishSlugError, setPublishSlugError] = useState("");
+  const [publishLoading, setPublishLoading] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const historyRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef(false);
+  const sessionIdRef = useRef(0);
   const restoredRef = useRef(false);
   const storageWarnedRef = useRef(false);
 
   const pageUrl = generatedSlug
     ? `${typeof window !== "undefined" ? window.location.origin : ""}/p/${generatedSlug}`
     : "";
+
+  // Load page history from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(HISTORY_KEY);
+      if (saved) setChatHistory(JSON.parse(saved) as ChatSession[]);
+    } catch { /* localStorage unavailable */ }
+  }, []);
+
+  // Close history dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+        setHistoryOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Restore from sessionStorage
   useEffect(() => {
@@ -109,7 +146,7 @@ export function ChatInterface() {
         };
         if (parsed.messages?.length) { setMessages(parsed.messages); restoredRef.current = true; }
         if (parsed.context) setContext(parsed.context);
-        if (parsed.generatedSlug) { setGeneratedSlug(parsed.generatedSlug); setPreviewReady(true); }
+        if (parsed.generatedSlug) { setGeneratedSlug(parsed.generatedSlug); setPreviewReady(true); setIsPublished(true); }
         if (typeof parsed.previewVersion === "number") setPreviewVersion(parsed.previewVersion);
       }
     } catch { /* unavailable */ }
@@ -170,7 +207,65 @@ export function ChatInterface() {
     };
   }
 
+  function saveToHistory(slug: string, brandName: string, sessionMessages: Message[], ctx: ChatContext, version: number) {
+    const session: ChatSession = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      slug,
+      brandName: brandName || "My Page",
+      timestamp: Date.now(),
+      messages: sessionMessages,
+      context: ctx,
+      previewVersion: version,
+    };
+    setChatHistory((prev) => {
+      const updated = [session, ...prev.filter((s) => s.slug !== slug)].slice(0, 20);
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+      return updated;
+    });
+  }
+
+  function restoreSession(session: ChatSession) {
+    stopAudio();
+    sessionIdRef.current += 1;
+    inflightRef.current = false;
+    setMessages(session.messages?.length ? session.messages : [GREETING]);
+    setContext(session.context ?? {});
+    setGeneratedSlug(session.slug);
+    setPreviewVersion(session.previewVersion ?? 0);
+    setPreviewReady(true);
+    setIsPublished(true);
+    setInput("");
+    setLoading(false);
+    setGenerating(false);
+    setError("");
+    setPendingPhotoDataUrls([]);
+    setHistoryOpen(false);
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+        messages: session.messages?.length ? session.messages : [GREETING],
+        context: session.context ?? {},
+        generatedSlug: session.slug,
+        previewVersion: session.previewVersion ?? 0,
+      }));
+    } catch { /* unavailable */ }
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  async function pollUntilReady(slug: string, mySession: number): Promise<void> {
+    const MAX = 20;
+    for (let i = 0; i < MAX; i++) {
+      await new Promise<void>((r) => setTimeout(r, 600));
+      if (sessionIdRef.current !== mySession) return;
+      try {
+        const check = await fetch(`/p/${slug}`, { method: "HEAD", cache: "no-store" });
+        if (check.ok) { setPreviewReady(true); return; }
+      } catch { /* network hiccup — retry */ }
+    }
+    if (sessionIdRef.current === mySession) setPreviewReady(true);
+  }
+
   async function triggerGenerate(ctx: ChatContext) {
+    const mySession = sessionIdRef.current;
     setGenerating(true);
     setError("");
     try {
@@ -181,22 +276,22 @@ export function ChatInterface() {
       });
       if (!res.ok) throw new Error("Generation failed");
       const json = await res.json() as { data?: { slug?: string; editToken?: string } };
+      if (sessionIdRef.current !== mySession) return;
       const slug = json.data?.slug;
       const editToken = json.data?.editToken;
       if (slug) {
         setGeneratedSlug(slug);
         setPreviewVersion(0);
         setPreviewReady(false);
-        setTimeout(() => setPreviewReady(true), 2500);
+        void pollUntilReady(slug, mySession);
         try {
           const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
           owned[slug] = true;
           localStorage.setItem("owned_pages", JSON.stringify(owned));
           if (editToken) localStorage.setItem(`edit_token_${slug}`, editToken);
         } catch { /* localStorage unavailable */ }
-        addMessage({ role: "assistant", content: "Your page is live! 🎉" });
-        addMessage({ role: "preview", content: "", previewSlug: slug, previewVersion: 0 });
-        void speak("Your page is live! The link is ready to share.");
+        addMessage({ role: "assistant", content: "Looking good! Preview is ready — hit **Publish** when you're happy to share it." });
+        void speak("Preview is ready. Make any changes you want, then hit Publish to share your page.");
       }
     } catch {
       setError("Couldn't generate the page. Please try again.");
@@ -206,6 +301,7 @@ export function ChatInterface() {
   }
 
   async function triggerUpdate(ctx: ChatContext, slug: string) {
+    const mySession = sessionIdRef.current;
     setGenerating(true);
     setError("");
     try {
@@ -215,12 +311,17 @@ export function ChatInterface() {
         body: JSON.stringify({ ...buildWizardInput(ctx), existingSlug: slug }),
       });
       if (!res.ok) throw new Error("Update failed");
-      const json = await res.json() as { data?: { slug?: string } };
+      const json = await res.json() as { data?: { slug?: string; editToken?: string } };
+      if (sessionIdRef.current !== mySession) return;
       if (json.data?.slug) {
         const nextVersion = previewVersion + 1;
         setPreviewReady(false);
         setPreviewVersion(nextVersion);
-        setTimeout(() => setPreviewReady(true), 2000);
+        void pollUntilReady(slug, mySession);
+        // Keep the localStorage token in sync — /api/generate mints a new token on every call
+        try {
+          if (json.data.editToken) localStorage.setItem(`edit_token_${slug}`, json.data.editToken);
+        } catch { /* ignore */ }
         const msg = "Done! Your page has been updated.";
         addMessage({ role: "assistant", content: msg });
         void speak(msg);
@@ -236,6 +337,7 @@ export function ChatInterface() {
     const trimmed = text.trim();
     if ((!trimmed && pendingPhotoDataUrls.length === 0) || inflightRef.current || generating) return;
     inflightRef.current = true;
+    const mySession = sessionIdRef.current;
     setError("");
     setInput("");
 
@@ -274,6 +376,8 @@ export function ChatInterface() {
         photoMapping?: string | null;
       };
 
+      if (sessionIdRef.current !== mySession) return;
+
       let updatedCtx = json.context;
 
       if (photosForThisMessage.length > 0) {
@@ -306,8 +410,18 @@ export function ChatInterface() {
         && json.action !== "generate";
 
       if (!stillNeedsPhotos && (json.action === "generate" || json.action === "update")) {
-        if (generatedSlug) setTimeout(() => void triggerUpdate(updatedCtx, generatedSlug), 600);
-        else setTimeout(() => void triggerGenerate(updatedCtx), 600);
+        const sessionAtSchedule = mySession;
+        if (generatedSlug) {
+          setTimeout(() => {
+            if (sessionIdRef.current !== sessionAtSchedule) return;
+            void triggerUpdate(updatedCtx, generatedSlug);
+          }, 600);
+        } else {
+          setTimeout(() => {
+            if (sessionIdRef.current !== sessionAtSchedule) return;
+            void triggerGenerate(updatedCtx);
+          }, 600);
+        }
       }
     } catch {
       setError("Something went wrong. Try again.");
@@ -357,30 +471,85 @@ export function ChatInterface() {
     }
   }
 
-  function copyLink() {
-    if (!pageUrl) return;
-    void navigator.clipboard.writeText(pageUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+
+  function openPublishModal() {
+    if (!generatedSlug) return;
+    setPublishSlug(generatedSlug);
+    setPublishSlugError("");
+    setPublishModalOpen(true);
+  }
+
+  // Asks the preview iframe to PATCH any pending inline edits before we publish the URL
+  function triggerIframeSave(): Promise<void> {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, 6000);
+      function onMessage(event: MessageEvent) {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type !== "SMART_PAGES_SAVE_DONE") return;
+        clearTimeout(timer);
+        window.removeEventListener("message", onMessage);
+        resolve();
+      }
+      window.addEventListener("message", onMessage);
+      iframe.contentWindow!.postMessage({ type: "SMART_PAGES_SAVE" }, window.location.origin);
     });
   }
 
-  function refreshPreview() {
-    setPreviewReady(false);
-    setPreviewVersion((v) => v + 1);
-    setTimeout(() => setPreviewReady(true), 1500);
+  async function confirmPublish(chosenSlug: string) {
+    if (!generatedSlug) return;
+    const clean = chosenSlug.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+    if (!clean) { setPublishSlugError("Enter a valid page name."); return; }
+    setPublishLoading(true);
+    setPublishSlugError("");
+    // Save any pending inline edits in the preview iframe first
+    await triggerIframeSave();
+    try {
+      let finalSlug = generatedSlug;
+      if (clean !== generatedSlug) {
+        const res = await fetch("/api/pages/rename", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fromSlug: generatedSlug, toSlug: clean }),
+        });
+        const json = await res.json() as { success?: boolean; data?: { slug?: string }; error?: string };
+        if (!res.ok || !json.success) { setPublishSlugError(json.error ?? "That name is taken — try another."); return; }
+        finalSlug = json.data?.slug ?? clean;
+        setGeneratedSlug(finalSlug);
+        // Update localStorage ownership keys
+        try {
+          const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
+          owned[finalSlug] = true; delete owned[generatedSlug];
+          localStorage.setItem("owned_pages", JSON.stringify(owned));
+          const token = localStorage.getItem(`edit_token_${generatedSlug}`);
+          if (token) { localStorage.setItem(`edit_token_${finalSlug}`, token); localStorage.removeItem(`edit_token_${generatedSlug}`); }
+        } catch { /* ignore */ }
+      }
+      setIsPublished(true);
+      setPublishModalOpen(false);
+      const liveUrl = `${window.location.origin}/p/${finalSlug}`;
+      const liveId = `live-${Date.now()}`;
+      const prevId = `prev-${Date.now()}`;
+      const newMessages: Message[] = [
+        ...messages,
+        { id: liveId, role: "assistant", content: `Your page is live at ${liveUrl} 🎉` },
+        { id: prevId, role: "preview", content: "", previewSlug: finalSlug, previewVersion },
+      ];
+      setMessages(newMessages);
+      saveToHistory(finalSlug, context.brandName ?? "My Page", newMessages, context, previewVersion);
+      void navigator.clipboard.writeText(liveUrl).catch(() => undefined);
+      void speak("Your page is live! The link has been copied.");
+    } finally {
+      setPublishLoading(false);
+    }
   }
 
-  function handleEditTool(active: boolean) {
-    setEditToolActive(active);
-    if (active) {
-      setTimeout(() => {
-        iframeRef.current?.contentWindow?.postMessage(
-          { type: "SMART_PAGES_EDIT", enabled: true },
-          window.location.origin
-        );
-      }, 50);
-    }
+  function refreshPreview() {
+    if (!generatedSlug) return;
+    setPreviewReady(false);
+    setPreviewVersion((v) => v + 1);
+    void pollUntilReady(generatedSlug, sessionIdRef.current);
   }
 
   const isCollection = context.pageType === "collection" && (context.collectionProducts?.length ?? 0) > 0;
@@ -389,13 +558,18 @@ export function ChatInterface() {
 
   function handleNewChat() {
     stopAudio();
+    sessionIdRef.current += 1;
+    inflightRef.current = false;
     setMessages([GREETING]);
     setContext({});
     setInput("");
+    setLoading(false);
+    setGenerating(false);
     setGeneratedSlug(null);
     setPreviewVersion(0);
     setPreviewReady(false);
-    setEditToolActive(false);
+    setIsPublished(false);
+    setPublishModalOpen(false);
     setError("");
     setPendingPhotoDataUrls([]);
     try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
@@ -417,6 +591,52 @@ export function ChatInterface() {
             <p className="text-xs text-white/40">by Razorpay</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            {chatHistory.length > 0 && (
+              <div className="relative" ref={historyRef}>
+                <button
+                  onClick={() => setHistoryOpen((v) => !v)}
+                  title="Your pages"
+                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${historyOpen ? "bg-white/20 text-white" : "bg-white/10 hover:bg-white/20 text-white/50 hover:text-white"}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </button>
+                {historyOpen && (
+                  <div className="absolute top-full right-0 mt-2 w-64 bg-[#1e293b] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden">
+                    <div className="px-3 py-2 border-b border-white/10">
+                      <p className="text-xs font-semibold text-white/50 uppercase tracking-wider">Your pages</p>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {chatHistory.map((session) => (
+                        <button
+                          key={session.id}
+                          onClick={() => restoreSession(session)}
+                          className="w-full px-3 py-2.5 hover:bg-white/5 flex items-center justify-between gap-2 border-b border-white/5 last:border-0 text-left transition-colors"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-white font-medium truncate">{session.brandName}</p>
+                            <p className="text-xs text-white/30 mt-0.5">
+                              {new Date(session.timestamp).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                            </p>
+                          </div>
+                          <a
+                            href={`/p/${session.slug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-xs text-white/30 hover:text-indigo-400 shrink-0 transition-colors px-1"
+                            title="Open page in new tab"
+                          >
+                            ↗
+                          </a>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               onClick={handleNewChat}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-white/60 hover:text-white transition-colors"
@@ -594,80 +814,71 @@ export function ChatInterface() {
                 <div className="w-3 h-3 rounded-full bg-yellow-300" />
                 <div className="w-3 h-3 rounded-full bg-green-300" />
               </div>
-              <div className="flex-1 min-w-0 bg-gray-100 rounded-lg px-3 py-1.5">
-                <p className="text-xs font-mono text-gray-400 truncate">{pageUrl}</p>
-              </div>
-              <button
-                onClick={refreshPreview}
-                title="Reload preview"
-                className="text-xs font-medium text-gray-400 hover:text-gray-700 transition-colors px-2 py-1.5 rounded-lg hover:bg-gray-100 shrink-0"
-              >
-                ↺
-              </button>
-              <a
-                href={`/p/${generatedSlug}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-gray-100"
-              >
-                Open
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
-              <button
-                onClick={copyLink}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 shrink-0"
-              >
-                {copied ? "Copied ✓" : "Copy link"}
-              </button>
+              {isPublished ? (
+                <>
+                  <div className="flex-1 min-w-0 bg-gray-100 rounded-lg px-3 py-1.5">
+                    <p className="text-xs font-mono text-gray-400 truncate">{pageUrl}</p>
+                  </div>
+                  <button onClick={refreshPreview} title="Reload preview" className="text-xs font-medium text-gray-400 hover:text-gray-700 transition-colors px-2 py-1.5 rounded-lg hover:bg-gray-100 shrink-0">↺</button>
+                  <a href={`/p/${generatedSlug}`} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-gray-100">
+                    Open
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  </a>
+                  <button
+                    onClick={openPublishModal}
+                    className="flex items-center gap-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors px-4 py-1.5 rounded-lg shrink-0 shadow-sm"
+                  >
+                    Publish
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="flex-1 min-w-0 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                    <p className="text-xs text-amber-600 font-medium truncate">Draft preview — not shared yet</p>
+                  </div>
+                  <button onClick={refreshPreview} title="Reload preview" className="text-xs font-medium text-gray-400 hover:text-gray-700 transition-colors px-2 py-1.5 rounded-lg hover:bg-gray-100 shrink-0">↺</button>
+                  <button
+                    onClick={openPublishModal}
+                    className="flex items-center gap-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors px-4 py-1.5 rounded-lg shrink-0 shadow-sm"
+                  >
+                    Publish
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+                  </button>
+                </>
+              )}
             </div>
             {/* Full page iframe or loading state */}
-            {previewReady ? (
-              <iframe
-                ref={iframeRef}
-                key={`${generatedSlug}-${previewVersion}`}
-                src={`/p/${generatedSlug}`}
-                className="flex-1 w-full border-0"
-                title="Page preview"
-                onLoad={() => {
-                  if (editToolActive) {
-                    setTimeout(() => {
-                      iframeRef.current?.contentWindow?.postMessage(
-                        { type: "SMART_PAGES_EDIT", enabled: true },
-                        window.location.origin
-                      );
-                    }, 150);
-                  }
-                }}
-              />
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
-                <svg className="animate-spin w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                <p className="text-sm text-gray-500">Loading preview…</p>
-              </div>
-            )}
-            {/* Bottom editing toolbar */}
-            <div className="h-12 bg-white border-t border-gray-200 flex items-center justify-center gap-1 shrink-0 px-4">
-              <button
-                onClick={() => handleEditTool(false)}
-                title="Navigate"
-                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${!editToolActive ? "bg-gray-900 text-white" : "text-gray-400 hover:bg-gray-100"}`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 3l14 9-7 1-4 7z" />
-                </svg>
-              </button>
-              <button
-                onClick={() => handleEditTool(true)}
-                title="Edit text"
-                className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm transition-colors ${editToolActive ? "bg-gray-900 text-white" : "text-gray-500 hover:bg-gray-100"}`}
-              >
-                T
-              </button>
+            <div className="relative flex-1 overflow-hidden">
+              {previewReady ? (
+                <iframe
+                  ref={iframeRef}
+                  key={`${generatedSlug}-${previewVersion}`}
+                  src={`/p/${generatedSlug}`}
+                  className="absolute inset-0 w-full h-full border-0"
+                  title="Page preview"
+                />
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-gray-400">
+                  <svg className="animate-spin w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <p className="text-sm text-gray-500">Loading preview…</p>
+                </div>
+              )}
+              {/* Publish modal overlay */}
+              {publishModalOpen && generatedSlug && (
+                <PublishModal
+                  initialSlug={publishSlug}
+                  error={publishSlugError}
+                  loading={publishLoading}
+                  onSlugChange={(s: string) => { setPublishSlug(s); setPublishSlugError(""); }}
+                  onConfirm={() => void confirmPublish(publishSlug)}
+                  onCancel={() => setPublishModalOpen(false)}
+                />
+              )}
             </div>
           </>
         ) : (
@@ -683,6 +894,68 @@ export function ChatInterface() {
         )}
       </div>
 
+    </div>
+  );
+}
+
+// ─── PublishModal ─────────────────────────────────────────────────────────────
+
+function PublishModal({
+  initialSlug, error, loading, onSlugChange, onConfirm, onCancel,
+}: {
+  initialSlug: string;
+  error: string;
+  loading: boolean;
+  onSlugChange: (s: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const preview = initialSlug.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") || "my-page";
+
+  return (
+    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-30 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">Publish your page</h2>
+          <button onClick={onCancel} className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors text-lg">×</button>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-semibold text-gray-700">Your page URL</label>
+          <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl overflow-hidden focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+            <span className="text-xs text-gray-400 pl-3 pr-1 shrink-0 whitespace-nowrap">{origin}/p/</span>
+            <input
+              type="text"
+              value={initialSlug}
+              onChange={(e) => onSlugChange(e.target.value)}
+              className="flex-1 bg-transparent text-sm font-semibold text-gray-800 py-2.5 pr-3 focus:outline-none min-w-0"
+              placeholder="my-page"
+              autoFocus
+            />
+          </div>
+          {error ? (
+            <p className="text-xs text-red-500">{error}</p>
+          ) : (
+            <p className="text-xs text-gray-400">Preview: <span className="text-gray-600 font-medium">{origin}/p/{preview}</span></p>
+          )}
+        </div>
+
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 shadow-sm"
+          >
+            {loading ? (
+              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            ) : "Publish & Copy Link"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

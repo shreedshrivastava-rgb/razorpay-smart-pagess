@@ -28,9 +28,9 @@ export function SectionRenderer({ section, brand, onCtaClick, razorpayKeyId, sec
     case "benefits":
       return <FeaturesBlock section={section} brand={brand} />;
     case "testimonials":
-      return <TestimonialsBlock section={section} brand={brand} />;
+      return <TestimonialsBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "faq":
-      return <FAQBlock section={section} brand={brand} />;
+      return <FAQBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
     case "cta":
       return <CTABlock section={section} brand={brand} onCtaClick={onCtaClick} />;
     case "trust":

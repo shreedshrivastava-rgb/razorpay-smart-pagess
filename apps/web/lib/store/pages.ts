@@ -1,6 +1,7 @@
 import { writeFile, readFile, mkdir } from "fs/promises";
 import path from "path";
 import type { PageSchema } from "@/lib/schema/page-schema";
+import { unstable_noStore as noStore } from "next/cache";
 
 // ─── Vercel Blob storage ──────────────────────────────────────────────────────
 // When BLOB_READ_WRITE_TOKEN is set (Blob store connected), pages are stored as
@@ -41,7 +42,7 @@ async function readStream(stream: ReadableStream): Promise<string> {
 
 async function blobGetRaw(slug: string): Promise<StoredPage | null> {
   const { get } = await import("@vercel/blob");
-  const result = await get(`pages/${slug}.json`, { access: "private" });
+  const result = await get(`pages/${slug}.json`, { access: "private", useCache: false });
   if (!result?.stream) return null;
   const text = await readStream(result.stream);
   return JSON.parse(text) as StoredPage;
@@ -181,6 +182,7 @@ export async function ensureUniqueSlug(slug: string, excludeId?: string): Promis
 }
 
 export async function getPage(slug: string): Promise<PageSchema | null> {
+  noStore();
   if (blobAvailable()) return blobGet(slug);
   const pages = await readPages();
   const stored = pages[slug];
@@ -188,6 +190,7 @@ export async function getPage(slug: string): Promise<PageSchema | null> {
 }
 
 export async function getPageEditToken(slug: string): Promise<string | null> {
+  noStore();
   if (blobAvailable()) {
     const raw = await blobGetRaw(slug);
     return raw?._editToken ?? null;

@@ -3,7 +3,7 @@
 import type { PageSchema, Section, Brand, Payment } from "@/lib/schema/page-schema";
 import { SectionRenderer } from "@/components/blocks/SectionRenderer";
 import { formatCurrency, cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { CartProvider, useCart } from "@/components/cart/CartContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
@@ -17,6 +17,128 @@ interface PageRendererProps {
 function sanitizeHexColor(color: string | undefined, fallback: string): string {
   if (color && /^#[0-9A-Fa-f]{3}$|^#[0-9A-Fa-f]{6}$/.test(color)) return color;
   return fallback;
+}
+
+// ─── Shared save utility ─────────────────────────────────────────
+async function commitPageEdits(page: PageSchema, fields: Record<string, string>): Promise<void> {
+  const updated = JSON.parse(JSON.stringify(page)) as PageSchema;
+  for (const [path, value] of Object.entries(fields)) {
+    const parts = path.split(".");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let obj: unknown = updated;
+    for (let i = 0; i < parts.length - 1; i++) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      obj = (obj as Record<string, unknown>)[parts[i]];
+      if (!obj) break;
+    }
+    const lastKey = parts[parts.length - 1];
+    // Coerce known numeric fields so the schema stays valid
+    const numericKeys = new Set(["amount", "price", "maxPrice", "minPrice"]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const coerced: unknown = numericKeys.has(lastKey) && value !== "" && !isNaN(Number(value)) ? Number(value) : value;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (obj) (obj as Record<string, unknown>)[lastKey] = coerced;
+  }
+  const editToken = (() => { try { return localStorage.getItem(`edit_token_${page.slug}`) ?? ""; } catch { return ""; } })();
+  const res = await fetch(`/api/pages/${page.slug}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", "X-Edit-Token": editToken },
+    body: JSON.stringify(updated),
+  });
+  if (res.status === 403) throw new Error("Not authorized — only the page creator can save changes.");
+  if (!res.ok) throw new Error("Save failed. Try again.");
+}
+
+// ─── Shared edit pencil — works for every page type ─────────────
+function WithEditPencil({ page, isProtected, children }: { page: PageSchema; isProtected: boolean; children: ReactNode }) {
+  return (
+    <EditModeProvider>
+      <EditPencilInner page={page} isProtected={isProtected}>
+        {children}
+      </EditPencilInner>
+    </EditModeProvider>
+  );
+}
+
+function EditPencilInner({ page, isProtected, children }: { page: PageSchema; isProtected: boolean; children: ReactNode }) {
+  const { editMode, toggle, enable, fields } = useEditMode();
+  const [showEdit, setShowEdit] = useState(!isProtected);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+
+  useEffect(() => {
+    if (!isProtected) { setShowEdit(true); return; }
+    try {
+      const token = localStorage.getItem(`edit_token_${page.slug}`);
+      const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
+      setShowEdit(!!(token || owned[page.slug]));
+    } catch { /* localStorage unavailable */ }
+  }, [page.slug, isProtected]);
+
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "SMART_PAGES_EDIT" && event.data.enabled) enable();
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [enable]);
+
+  // Clicking ✓ auto-saves pending changes then reloads; clicking ✏ just enters edit mode
+  async function handlePencilClick() {
+    if (!editMode) { toggle(); return; }
+    if (Object.keys(fields).length === 0) { toggle(); return; }
+    setSaving(true);
+    setSaveErr("");
+    try {
+      await commitPageEdits(page, fields);
+      window.location.reload();
+    } catch (err) {
+      setSaving(false);
+      setSaveErr(err instanceof Error ? err.message : "Save failed. Try again.");
+    }
+  }
+
+  return (
+    <>
+      {children}
+      {showEdit && (
+        <>
+          {saveErr && editMode && (
+            <div className="fixed bottom-20 right-6 z-50 bg-red-600 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-lg max-w-xs text-right">
+              ⚠ {saveErr}
+            </div>
+          )}
+          <button
+            onClick={() => void handlePencilClick()}
+            disabled={saving}
+            title={editMode ? (saving ? "Saving…" : "Save & exit editing") : "Edit page"}
+            className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-xl flex items-center justify-center text-white text-xl transition-all hover:scale-110 active:scale-95 disabled:opacity-70 disabled:scale-100"
+            style={{ backgroundColor: editMode ? "#16a34a" : "#6366f1" }}
+            aria-label={editMode ? "Exit editing" : "Edit page"}
+          >
+            {saving ? (
+              <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : editMode ? "✓" : "✏"}
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
+// Renders the wrapper div with EditBar inside it (sticky positioning requires it to be in the scroll container)
+function PageShell({ page, className, style, children }: { page: PageSchema; className: string; style: React.CSSProperties; children: ReactNode }) {
+  const { editMode } = useEditMode();
+  return (
+    <div className={className} style={style}>
+      {editMode && <EditBar page={page} />}
+      {children}
+    </div>
+  );
 }
 
 export function PageRenderer({ page, isPreview = false, isProtected = false }: PageRendererProps) {
@@ -38,44 +160,47 @@ export function PageRenderer({ page, isPreview = false, isProtected = false }: P
   // ── Landing page: full persuasion funnel, payment card at bottom ──
   if (page.pageType === "landing") {
     return (
-      <div className={wrapper} style={brandStyle}>
-        <CheckoutNav brand={brand} payment={payment} />
-        <LandingHero page={page} brand={brand} payment={payment} />
-        <div className="bg-white">
-          {sections.map((section) => (
-            <SectionRenderer
-              key={section.id}
-              section={section}
-              brand={brand}
-              onCtaClick={() => document.getElementById("pay")?.scrollIntoView({ behavior: "smooth" })}
-              razorpayKeyId={payment.razorpayKeyId}
-            />
-          ))}
-        </div>
-        {/* Payment anchored at the bottom for landing pages */}
-        <div id="pay" className="py-16 bg-gray-50">
-          <div className="container mx-auto px-4 max-w-md">
-            <h2 className="text-2xl font-bold text-center text-gray-900 mb-8">
-              Get started today
-            </h2>
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-              <InlinePaymentCard page={page} brand={brand} />
+      <WithEditPencil page={page} isProtected={isProtected}>
+        <PageShell page={page} className={wrapper} style={brandStyle}>
+          <CheckoutNav brand={brand} payment={payment} />
+          <LandingHero page={page} brand={brand} payment={payment} />
+          <div className="bg-white">
+            {sections.map((section, idx) => (
+              <SectionRenderer
+                key={section.id}
+                section={section}
+                brand={brand}
+                onCtaClick={() => document.getElementById("pay")?.scrollIntoView({ behavior: "smooth" })}
+                razorpayKeyId={payment.razorpayKeyId}
+                sectionIndex={idx}
+              />
+            ))}
+          </div>
+          {/* Payment anchored at the bottom for landing pages */}
+          <div id="pay" className="py-16 bg-gray-50">
+            <div className="container mx-auto px-4 max-w-md">
+              <h2 className="text-2xl font-bold text-center text-gray-900 mb-8">
+                Get started today
+              </h2>
+              <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                <InlinePaymentCard page={page} brand={brand} />
+              </div>
             </div>
           </div>
-        </div>
-        <CheckoutFooter brand={brand} />
-      </div>
+          <CheckoutFooter brand={brand} />
+        </PageShell>
+      </WithEditPencil>
     );
   }
 
   // ── Collection page: multi-product grid with cart, always-on inline editing ──
   if (page.pageType === "collection") {
     return (
-      <EditModeProvider>
+      <WithEditPencil page={page} isProtected={isProtected}>
         <CartProvider>
-          <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} isProtected={isProtected ?? false} />
+          <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} />
         </CartProvider>
-      </EditModeProvider>
+      </WithEditPencil>
     );
   }
 
@@ -85,35 +210,38 @@ export function PageRenderer({ page, isPreview = false, isProtected = false }: P
   const belowSections = sections.filter((s) => belowFoldTypes.has(s.type));
 
   return (
-    <div className={wrapper} style={brandStyle}>
-      <a href="#pay" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-white focus:text-gray-900 focus:rounded focus:shadow-lg focus:text-sm">
-        Skip to payment
-      </a>
-      <CheckoutNav brand={brand} payment={payment} />
-      <CheckoutHero page={page} brand={brand} payment={payment} aboveSections={aboveSections} />
+    <WithEditPencil page={page} isProtected={isProtected}>
+      <PageShell page={page} className={wrapper} style={brandStyle}>
+        <a href="#pay" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-white focus:text-gray-900 focus:rounded focus:shadow-lg focus:text-sm">
+          Skip to payment
+        </a>
+        <CheckoutNav brand={brand} payment={payment} />
+        <CheckoutHero page={page} brand={brand} payment={payment} aboveSections={aboveSections} />
 
-      {belowSections.length > 0 && (
-        <div className="bg-white">
-          {belowSections.map((section) => (
-            <SectionRenderer
-              key={section.id}
-              section={section}
-              brand={brand}
-              onCtaClick={() => {}}
-              razorpayKeyId={payment.razorpayKeyId}
-            />
-          ))}
-        </div>
-      )}
+        {belowSections.length > 0 && (
+          <div className="bg-white">
+            {belowSections.map((section) => (
+              <SectionRenderer
+                key={section.id}
+                section={section}
+                brand={brand}
+                onCtaClick={() => {}}
+                razorpayKeyId={payment.razorpayKeyId}
+                sectionIndex={sections.indexOf(section)}
+              />
+            ))}
+          </div>
+        )}
 
-      <CheckoutFooter brand={brand} />
-    </div>
+        <CheckoutFooter brand={brand} />
+      </PageShell>
+    </WithEditPencil>
   );
 }
 
 // ─── Collection page inner (needs useEditMode hook) ──────────────
 function CollectionPageInner({
-  page, wrapper, brandStyle, brand, sections, payment, isProtected,
+  page, wrapper, brandStyle, brand, sections, payment,
 }: {
   page: PageSchema;
   wrapper: string;
@@ -121,33 +249,9 @@ function CollectionPageInner({
   brand: Brand;
   sections: Section[];
   payment: Payment;
-  isProtected: boolean;
 }) {
-  const { editMode, toggle, enable } = useEditMode();
-  const [showEdit, setShowEdit] = useState(!isProtected);
-
-  useEffect(() => {
-    if (!isProtected) { setShowEdit(true); return; }
-    try {
-      const token = localStorage.getItem(`edit_token_${page.slug}`);
-      const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
-      setShowEdit(!!(token || owned[page.slug]));
-    } catch { /* localStorage unavailable */ }
-  }, [page.slug, isProtected]);
-
-  // Allow the chat preview panel to activate edit mode via postMessage
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "SMART_PAGES_EDIT" && event.data.enabled) enable();
-    }
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [enable]);
-
   return (
-    <div className={wrapper} style={brandStyle}>
-      {editMode && <EditBar page={page} />}
+    <PageShell page={page} className={wrapper} style={brandStyle}>
       <CollectionNav brand={brand} />
       <CollectionHero brand={brand} payment={payment} page={page} />
       <div id="products" className="bg-white">
@@ -164,18 +268,7 @@ function CollectionPageInner({
       </div>
       <CheckoutFooter brand={brand} />
       <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
-      {showEdit && (
-        <button
-          onClick={toggle}
-          title={editMode ? "Exit editing" : "Edit page"}
-          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full shadow-xl flex items-center justify-center text-white text-xl transition-all hover:scale-110 active:scale-95"
-          style={{ backgroundColor: editMode ? "#16a34a" : "#6366f1" }}
-          aria-label={editMode ? "Exit editing" : "Edit page"}
-        >
-          {editMode ? "✓" : "✏"}
-        </button>
-      )}
-    </div>
+    </PageShell>
   );
 }
 
@@ -239,6 +332,13 @@ function CheckoutHero({
   payment: Payment;
   aboveSections: Section[];
 }) {
+  const { editMode, fields, setField } = useEditMode();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const displayName = fields["payment.name"] ?? payment.name;
+  const displayDesc = fields["payment.description"] ?? payment.description;
+  const displayImageUrl = fields["productImageUrl"] ?? page.productImageUrl;
+
   const bullets: string[] = (page.productBullets as string[] | undefined) ?? [];
   const featureSection = aboveSections.find((s) => s.type === "features" || s.type === "benefits");
   const derivedBullets =
@@ -249,14 +349,22 @@ function CheckoutHero({
           .map((i) => i.title) ?? [];
 
   const trustSection = aboveSections.find((s) => s.type === "trust");
-  const imageUrl = page.productImageUrl;
   const galleryImages = page.productImages && page.productImages.length > 1 ? page.productImages : null;
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) { alert("Image must be under 4 MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => { setField("productImageUrl", reader.result as string); };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
 
   return (
     <section className="py-8 md:py-12">
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <div className="container mx-auto px-4 max-w-6xl">
-        {/* Aesthetic signature: left column has brand-tinted background (brand world),
-            right column stays white (transaction world) — mirrors how physical retail works */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-0 lg:gap-px rounded-2xl overflow-hidden border border-black/[0.07] shadow-[0_2px_24px_-4px_rgba(0,0,0,0.08)]">
 
           {/* LEFT: brand world */}
@@ -265,19 +373,27 @@ function CheckoutHero({
             style={{ backgroundColor: `${brand.primaryColor}0c` }}
           >
             {/* Product visual */}
-            {imageUrl ? (
+            {displayImageUrl ? (
               <div className="flex flex-col gap-2">
-                <div className="rounded-xl overflow-hidden aspect-[4/3] shadow-sm bg-gray-50 flex items-center justify-center">
+                <div
+                  className={cn("rounded-xl overflow-hidden aspect-[4/3] shadow-sm bg-gray-50 flex items-center justify-center relative", editMode && "cursor-pointer group")}
+                  onClick={() => editMode && fileRef.current?.click()}
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={imageUrl}
-                    alt={payment.name}
+                    src={displayImageUrl}
+                    alt={displayName}
                     width={600}
                     height={450}
                     className="w-full h-full object-contain"
                     fetchPriority="high"
                     onError={(e) => { e.currentTarget.style.display = "none"; }}
                   />
+                  {editMode && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg text-gray-700 text-xl">✏</div>
+                    </div>
+                  )}
                 </div>
                 {galleryImages && (
                   <div className="flex gap-2 overflow-x-auto pb-1">
@@ -286,7 +402,7 @@ function CheckoutHero({
                       <img
                         key={i}
                         src={src}
-                        alt={`${payment.name} ${i + 1}`}
+                        alt={`${displayName} ${i + 1}`}
                         className="w-16 h-16 rounded-lg object-cover shrink-0 border-2 border-white shadow-sm"
                         onError={(e) => { e.currentTarget.style.display = "none"; }}
                       />
@@ -295,58 +411,112 @@ function CheckoutHero({
                 )}
               </div>
             ) : (
-              <BrandedProductCard brand={brand} payment={payment} pageType={page.pageType} />
+              <div
+                className={cn(editMode && "cursor-pointer group relative")}
+                onClick={() => editMode && fileRef.current?.click()}
+              >
+                <BrandedProductCard brand={brand} payment={payment} pageType={page.pageType} />
+                {editMode && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                    <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg text-gray-700 text-xl">✏</div>
+                  </div>
+                )}
+              </div>
             )}
 
-            {/* Product name + price — the biggest type on the page */}
+            {/* Product name + price */}
             <div className="flex flex-col gap-1.5">
-              {/* Eyebrow */}
               <p
                 className="text-[11px] font-bold uppercase tracking-[0.12em]"
                 style={{ color: `${brand.primaryColor}99` }}
               >
                 {page.pageType}
               </p>
-              <h1
-                className="text-3xl md:text-4xl font-extrabold text-gray-900 leading-tight tracking-tight"
-                style={{ textWrap: "balance" } as React.CSSProperties}
-              >
-                {payment.name}
-              </h1>
-              {payment.amount > 0 && (
-                <p
-                  className="text-3xl font-extrabold tabular-nums"
-                  style={{ color: brand.primaryColor }}
-                  translate="no"
+              {editMode ? (
+                <input
+                  value={displayName}
+                  onChange={(e) => setField("payment.name", e.target.value)}
+                  className="text-3xl md:text-4xl font-extrabold text-gray-900 leading-tight tracking-tight bg-transparent border-b-2 border-indigo-300 focus:border-indigo-500 outline-none w-full"
+                />
+              ) : (
+                <h1
+                  className="text-3xl md:text-4xl font-extrabold text-gray-900 leading-tight tracking-tight"
+                  style={{ textWrap: "balance" } as React.CSSProperties}
                 >
-                  {formatCurrency(payment.amount, payment.currency)}
-                </p>
+                  {displayName}
+                </h1>
               )}
-              {payment.description && (
-                <p className="text-gray-500 text-sm leading-relaxed mt-1">
-                  {payment.description}
-                </p>
+              {editMode ? (
+                <div className="flex items-center gap-0.5">
+                  <span className="text-3xl font-extrabold" style={{ color: brand.primaryColor }}>
+                    {payment.currency === "INR" ? "₹" : payment.currency === "USD" ? "$" : payment.currency === "EUR" ? "€" : payment.currency === "GBP" ? "£" : payment.currency}
+                  </span>
+                  <input
+                    type="number"
+                    value={fields["payment.amount"] ?? String(payment.amount)}
+                    onChange={(e) => setField("payment.amount", e.target.value)}
+                    min="0"
+                    step="any"
+                    placeholder="0"
+                    className="text-3xl font-extrabold tabular-nums bg-transparent border-b-2 border-indigo-300 focus:border-indigo-500 outline-none w-28"
+                    style={{ color: brand.primaryColor }}
+                  />
+                </div>
+              ) : (
+                payment.amount > 0 && (
+                  <p
+                    className="text-3xl font-extrabold tabular-nums"
+                    style={{ color: brand.primaryColor }}
+                    translate="no"
+                  >
+                    {formatCurrency(payment.amount, payment.currency)}
+                  </p>
+                )
+              )}
+              {(displayDesc || editMode) && (
+                editMode ? (
+                  <textarea
+                    value={displayDesc ?? ""}
+                    onChange={(e) => setField("payment.description", e.target.value)}
+                    placeholder="Add a product description…"
+                    rows={3}
+                    className="text-gray-500 text-sm leading-relaxed mt-1 bg-transparent border border-indigo-200 focus:border-indigo-400 outline-none rounded-lg p-2 w-full resize-none"
+                  />
+                ) : (
+                  <p className="text-gray-500 text-sm leading-relaxed mt-1">{displayDesc}</p>
+                )
               )}
             </div>
 
             {/* Feature bullets — Sweetgreen-inspired ingredient cards */}
             {derivedBullets.length > 0 && (
               <div className="grid grid-cols-2 gap-2">
-                {derivedBullets.map((b, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start gap-2 bg-white/70 backdrop-blur-sm rounded-lg px-2.5 py-2 border border-black/[0.06]"
-                  >
-                    <span
-                      className="mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: `${brand.primaryColor}20`, color: brand.primaryColor }}
-                      aria-hidden="true"
+                {derivedBullets.map((b, i) => {
+                  const hasBulletsInPage = ((page.productBullets as string[] | undefined) ?? []).filter(Boolean).length > 0;
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2 bg-white/70 backdrop-blur-sm rounded-lg px-2.5 py-2 border border-black/[0.06]"
                     >
-                      <CheckIcon />
-                    </span>
-                    <span className="text-gray-700 text-xs leading-snug font-semibold">{b}</span>
-                  </div>
-                ))}
+                      <span
+                        className="mt-0.5 w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${brand.primaryColor}20`, color: brand.primaryColor }}
+                        aria-hidden="true"
+                      >
+                        <CheckIcon />
+                      </span>
+                      <span className="text-gray-700 text-xs leading-snug font-semibold flex-1 min-w-0">
+                        {editMode && hasBulletsInPage ? (
+                          <input
+                            value={fields[`productBullets.${i}`] ?? b}
+                            onChange={(e) => setField(`productBullets.${i}`, e.target.value)}
+                            className="bg-transparent border-b border-indigo-200 focus:border-indigo-400 outline-none w-full text-gray-700 text-xs font-semibold"
+                          />
+                        ) : b}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -564,15 +734,20 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
         {payment.description && (
           <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">{payment.description}</p>
         )}
-        <div className="flex items-center gap-1.5 mt-3" aria-label="4.9 out of 5 stars">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <svg key={i} className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"
-              style={{ color: i <= 5 ? brand.primaryColor : "#e5e7eb" }}>
-              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-            </svg>
-          ))}
-          <span className="text-sm text-gray-400 ml-0.5">4.9 <span className="text-gray-300">(121)</span></span>
-        </div>
+        {page.averageRating !== undefined && (
+          <div className="flex items-center gap-1.5 mt-3" aria-label={`${page.averageRating.toFixed(1)} out of 5 stars`}>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <svg key={i} className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"
+                style={{ color: i <= Math.round(page.averageRating!) ? brand.primaryColor : "#e5e7eb" }}>
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+              </svg>
+            ))}
+            <span className="text-sm text-gray-400 ml-0.5">
+              {page.averageRating.toFixed(1)}
+              {page.reviewCount !== undefined && <span className="text-gray-300"> ({page.reviewCount})</span>}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── Section 2: Price ── */}
@@ -846,7 +1021,8 @@ function PayField({ id, label, required, type, name, autoComplete, spellCheck, i
 
 // ─── Branded product card (no-image fallback) ─────────────────────
 function darken(hex: string, factor: number): string {
-  const h = hex.replace(/^#/, "").padEnd(6, "0");
+  let h = hex.replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
   const r = Math.max(0, Math.round(parseInt(h.slice(0, 2), 16) * factor));
   const g = Math.max(0, Math.round(parseInt(h.slice(2, 4), 16) * factor));
   const b = Math.max(0, Math.round(parseInt(h.slice(4, 6), 16) * factor));
@@ -965,11 +1141,26 @@ function BrandedProductCard({ brand, payment, pageType }: { brand: Brand; paymen
 
 // ─── Landing page hero (full-width, no sidebar payment card) ─────
 function LandingHero({ page, brand, payment }: { page: PageSchema; brand: Brand; payment: Payment }) {
+  const { editMode, fields, setField } = useEditMode();
+  const fileRef = useRef<HTMLInputElement>(null);
+
   const heroSection = page.sections.find((s) => s.type === "hero");
-  const headline = heroSection?.type === "hero" ? heroSection.headline : payment.name;
-  const subheadline = heroSection?.type === "hero" ? heroSection.subheadline : payment.description;
   const badge = heroSection?.type === "hero" ? heroSection.badge : undefined;
   const urgency = heroSection?.type === "hero" ? heroSection.urgency : undefined;
+
+  const displayName = fields["payment.name"] ?? payment.name;
+  const displayDesc = fields["payment.description"] ?? payment.description;
+  const displayImageUrl = fields["productImageUrl"] ?? page.productImageUrl;
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) { alert("Image must be under 4 MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => { setField("productImageUrl", reader.result as string); };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
 
   return (
     <section
@@ -978,6 +1169,7 @@ function LandingHero({ page, brand, payment }: { page: PageSchema; brand: Brand;
         background: `radial-gradient(ellipse 80% 60% at 50% -10%, ${brand.primaryColor}18 0%, transparent 70%), #fff`,
       }}
     >
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       <div className="container mx-auto px-4 max-w-3xl relative">
         {badge && (
           <span
@@ -991,21 +1183,77 @@ function LandingHero({ page, brand, payment }: { page: PageSchema; brand: Brand;
           // eslint-disable-next-line @next/next/no-img-element
           <img src={brand.logo} alt={brand.name} className="h-10 mx-auto mb-6 object-contain" />
         )}
-        <h1
-          className="text-4xl md:text-6xl font-extrabold text-gray-900 leading-[1.05] tracking-tight mb-6"
-          style={{ textWrap: "balance" } as React.CSSProperties}
-        >
-          {headline}
-        </h1>
-        {subheadline && (
-          <p className="text-xl text-gray-500 leading-relaxed mb-8 max-w-2xl mx-auto">
-            {subheadline}
-          </p>
+        {displayImageUrl && (
+          <div
+            className={cn("relative inline-block mx-auto mb-6", editMode && "cursor-pointer group")}
+            onClick={() => editMode && fileRef.current?.click()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={displayImageUrl} alt={displayName} className="max-h-64 mx-auto rounded-2xl shadow-lg object-contain" />
+            {editMode && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl">
+                <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center shadow-lg text-gray-700 text-xl">✏</div>
+              </div>
+            )}
+          </div>
         )}
-        {payment.amount > 0 && (
-          <p className="text-4xl font-extrabold mb-8 tabular-nums" style={{ color: brand.primaryColor }} translate="no">
-            {formatCurrency(payment.amount, payment.currency)}
-          </p>
+        {!displayImageUrl && editMode && (
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="mx-auto mb-6 flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-dashed border-indigo-300 text-indigo-400 text-sm hover:border-indigo-500 hover:text-indigo-600 transition-colors"
+          >
+            <span>+</span> Add product image
+          </button>
+        )}
+        {editMode ? (
+          <input
+            value={displayName}
+            onChange={(e) => setField("payment.name", e.target.value)}
+            className="text-4xl md:text-6xl font-extrabold text-gray-900 leading-[1.05] tracking-tight mb-6 bg-transparent border-b-2 border-indigo-300 focus:border-indigo-500 outline-none text-center w-full"
+          />
+        ) : (
+          <h1
+            className="text-4xl md:text-6xl font-extrabold text-gray-900 leading-[1.05] tracking-tight mb-6"
+            style={{ textWrap: "balance" } as React.CSSProperties}
+          >
+            {displayName}
+          </h1>
+        )}
+        {(displayDesc || editMode) && (
+          editMode ? (
+            <textarea
+              value={displayDesc ?? ""}
+              onChange={(e) => setField("payment.description", e.target.value)}
+              placeholder="Add a description…"
+              rows={2}
+              className="text-xl text-gray-500 leading-relaxed mb-8 max-w-2xl mx-auto bg-transparent border border-indigo-200 focus:border-indigo-400 outline-none rounded-lg p-2 w-full resize-none text-center"
+            />
+          ) : (
+            <p className="text-xl text-gray-500 leading-relaxed mb-8 max-w-2xl mx-auto">{displayDesc}</p>
+          )
+        )}
+        {editMode ? (
+          <div className="flex items-center justify-center gap-0.5 mb-8">
+            <span className="text-4xl font-extrabold" style={{ color: brand.primaryColor }}>
+              {payment.currency === "INR" ? "₹" : payment.currency === "USD" ? "$" : payment.currency === "EUR" ? "€" : payment.currency === "GBP" ? "£" : payment.currency}
+            </span>
+            <input
+              type="number"
+              value={fields["payment.amount"] ?? String(payment.amount)}
+              onChange={(e) => setField("payment.amount", e.target.value)}
+              min="0"
+              step="any"
+              placeholder="0"
+              className="text-4xl font-extrabold tabular-nums bg-transparent border-b-2 border-indigo-300 focus:border-indigo-500 outline-none w-36 text-center"
+              style={{ color: brand.primaryColor }}
+            />
+          </div>
+        ) : (
+          payment.amount > 0 && (
+            <p className="text-4xl font-extrabold mb-8 tabular-nums" style={{ color: brand.primaryColor }} translate="no">
+              {formatCurrency(payment.amount, payment.currency)}
+            </p>
+          )
         )}
         {urgency && (
           <p className="text-sm text-orange-600 font-semibold mb-4">{urgency}</p>
@@ -1065,35 +1313,39 @@ function CollectionNav({ brand }: { brand: Brand }) {
 function EditBar({ page }: { page: PageSchema }) {
   const { fields, saving, setSaving, saveError, setSaveError } = useEditMode();
   const hasChanges = Object.keys(fields).length > 0;
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
 
-  async function handleSave() {
+  // skipReload = true when called from the Publish postMessage flow (parent needs the reply)
+  async function handleSave(skipReload = false): Promise<void> {
     setSaving(true);
     setSaveError("");
     try {
-      // Build updated page by applying field changes
-      const updated = JSON.parse(JSON.stringify(page)) as PageSchema;
-      for (const [path, value] of Object.entries(fields)) {
-        const parts = path.split(".");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let obj: any = updated;
-        for (let i = 0; i < parts.length - 1; i++) { obj = obj[parts[i]]; if (!obj) break; }
-        if (obj) obj[parts[parts.length - 1]] = value;
-      }
-      const editToken = (() => { try { return localStorage.getItem(`edit_token_${page.slug}`) ?? ""; } catch { return ""; } })();
-      const res = await fetch(`/api/pages/${page.slug}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "X-Edit-Token": editToken },
-        body: JSON.stringify(updated),
-      });
-      if (res.status === 403) throw new Error("Not authorized — only the page creator can save changes.");
-      if (!res.ok) throw new Error("Save failed. Try again.");
-      window.location.reload();
+      await commitPageEdits(page, fieldsRef.current);
+      if (!skipReload) window.location.reload();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Couldn't save. Try again.");
+      throw err;
     } finally {
       setSaving(false);
     }
   }
+
+  // Listen for Publish flow requesting a save before the URL goes live
+  useEffect(() => {
+    async function onMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "SMART_PAGES_SAVE") return;
+      if (Object.keys(fieldsRef.current).length > 0) {
+        try { await handleSave(true); } catch { /* error already set in state */ }
+      }
+      window.parent.postMessage({ type: "SMART_PAGES_SAVE_DONE" }, window.location.origin);
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page.slug]);
+
 
   return (
     <div className="sticky top-0 z-50 bg-indigo-600 text-white px-4 py-2.5 flex items-center justify-between gap-3 shadow-lg">
@@ -1111,7 +1363,7 @@ function EditBar({ page }: { page: PageSchema }) {
           Cancel
         </button>
         <button
-          onClick={handleSave}
+          onClick={() => void handleSave()}
           disabled={saving || !hasChanges}
           className="px-4 py-1.5 rounded-lg text-xs font-bold bg-white text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-50"
         >

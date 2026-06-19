@@ -69,14 +69,22 @@ async function callModel(prompt: string, retriesLeft = 1): Promise<string> {
   return json.content?.[0]?.text ?? "";
 }
 
+// Extracts JSON from AI response whether or not it's wrapped in a code fence
+// and regardless of any leading prose (e.g. "Here is the JSON:\n```json\n{...}```")
+function extractJson(raw: string): string {
+  const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (fenceMatch?.[1]) return fenceMatch[1].trim();
+  const start = raw.indexOf("{") !== -1 ? raw.indexOf("{") : raw.indexOf("[");
+  const end = raw.lastIndexOf("}") !== -1 ? raw.lastIndexOf("}") : raw.lastIndexOf("]");
+  if (start !== -1 && end > start) return raw.slice(start, end + 1);
+  return raw.trim();
+}
+
 export async function generatePageContent(input: WizardInput): Promise<GeneratedContent> {
   const prompt = buildGenerationPrompt(input);
   const raw = await callModel(prompt);
 
-  const jsonText = raw
-    .replace(/^```(?:json)?\n?/m, "")
-    .replace(/\n?```$/m, "")
-    .trim();
+  const jsonText = extractJson(raw);
 
   try {
     return JSON.parse(jsonText) as GeneratedContent;
@@ -85,11 +93,7 @@ export async function generatePageContent(input: WizardInput): Promise<Generated
     const retryPrompt = prompt + `\n\nIMPORTANT: Your previous response was truncated. Return the COMPLETE JSON without any truncation. Keep sections concise to fit in the token limit.`;
     try {
       const retryRaw = await callModel(retryPrompt, 0);
-      const retryJson = retryRaw
-        .replace(/^```(?:json)?\n?/m, "")
-        .replace(/\n?```$/m, "")
-        .trim();
-      return JSON.parse(retryJson) as GeneratedContent;
+      return JSON.parse(extractJson(retryRaw)) as GeneratedContent;
     } catch {
       throw new Error(`AI returned invalid JSON after retry. Raw: ${jsonText.slice(0, 300)}`);
     }

@@ -7,11 +7,12 @@ export function cn(...inputs: ClassValue[]) {
 
 export function slugify(text: string): string {
   return text
+    .trim()
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
-    .trim();
+    .replace(/^-+|-+$/g, "");
 }
 
 export function formatCurrency(paise: number, currency = "INR"): string {
@@ -23,9 +24,11 @@ export function formatCurrency(paise: number, currency = "INR"): string {
 }
 
 export function hexToHsl(hex: string): string {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  let h6 = hex.replace(/^#/, "");
+  if (h6.length === 3) h6 = h6.split("").map((c) => c + c).join("");
+  const r = parseInt(h6.slice(0, 2), 16) / 255;
+  const g = parseInt(h6.slice(2, 4), 16) / 255;
+  const b = parseInt(h6.slice(4, 6), 16) / 255;
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);

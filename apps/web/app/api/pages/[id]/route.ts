@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { getPage, getPageEditToken, updatePage, deletePage } from "@/lib/store/pages";
 
 const deleteRateLimit = new Map<string, { count: number; resetAt: number }>();
 function checkDeleteRateLimit(ip: string): boolean {
   const now = Date.now();
+  for (const [key, val] of deleteRateLimit) { if (now > val.resetAt) deleteRateLimit.delete(key); }
   const entry = deleteRateLimit.get(ip);
   if (!entry || now > entry.resetAt) { deleteRateLimit.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
   if (entry.count >= 10) return false;
@@ -50,6 +52,7 @@ export async function PATCH(
   const updates = await req.json();
   const page = await updatePage(id, updates);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
+  revalidatePath(`/p/${id}`);
   return NextResponse.json({ success: true, data: page });
 }
 

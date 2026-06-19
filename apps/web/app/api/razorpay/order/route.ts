@@ -4,6 +4,7 @@ import { getPage } from "@/lib/store/pages";
 const orderRateLimit = new Map<string, { count: number; resetAt: number }>();
 function checkOrderRateLimit(ip: string): boolean {
   const now = Date.now();
+  for (const [key, val] of orderRateLimit) { if (now > val.resetAt) orderRateLimit.delete(key); }
   const entry = orderRateLimit.get(ip);
   if (!entry || now > entry.resetAt) { orderRateLimit.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
   if (entry.count >= 20) return false;
