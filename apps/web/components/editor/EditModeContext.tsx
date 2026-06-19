@@ -11,6 +11,7 @@ interface EditModeContextValue {
   setActiveField: (key: string | null) => void;
   fields: Record<string, string>;
   setField: (key: string, value: string) => void;
+  clearFields: () => void;
   saving: boolean;
   setSaving: (v: boolean) => void;
   saveError: string;
@@ -33,8 +34,10 @@ export function EditModeProvider({ children }: { children: ReactNode }) {
     setFields((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  const clearFields = useCallback(() => setFields({}), []);
+
   return (
-    <EditModeContext.Provider value={{ editMode, toggle, enable, activeField, setActiveField, fields, setField, saving, setSaving, saveError, setSaveError }}>
+    <EditModeContext.Provider value={{ editMode, toggle, enable, activeField, setActiveField, fields, setField, clearFields, saving, setSaving, saveError, setSaveError }}>
       {children}
     </EditModeContext.Provider>
   );

@@ -62,7 +62,7 @@ function WithEditPencil({ page, isProtected, children }: { page: PageSchema; isP
 }
 
 function EditPencilInner({ page, isProtected, children }: { page: PageSchema; isProtected: boolean; children: ReactNode }) {
-  const { editMode, toggle, enable, fields } = useEditMode();
+  const { editMode, toggle, enable, fields, clearFields } = useEditMode();
   const [showEdit, setShowEdit] = useState(!isProtected);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
@@ -94,8 +94,9 @@ function EditPencilInner({ page, isProtected, children }: { page: PageSchema; is
     setSaveErr("");
     try {
       await commitPageEdits(page, fields);
-      router.refresh();
+      clearFields();
       toggle();
+      router.refresh();
     } catch (err) {
       setSaving(false);
       setSaveErr(err instanceof Error ? err.message : "Save failed. Try again.");
@@ -1314,7 +1315,7 @@ function CollectionNav({ brand }: { brand: Brand }) {
 
 // ─── Edit mode floating bar ───────────────────────────────────────
 function EditBar({ page }: { page: PageSchema }) {
-  const { fields, saving, setSaving, saveError, setSaveError, toggle } = useEditMode();
+  const { fields, saving, setSaving, saveError, setSaveError, toggle, clearFields } = useEditMode();
   const hasChanges = Object.keys(fields).length > 0;
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
@@ -1326,7 +1327,7 @@ function EditBar({ page }: { page: PageSchema }) {
     setSaveError("");
     try {
       await commitPageEdits(page, fieldsRef.current);
-      if (!skipRefresh) { router.refresh(); toggle(); }
+      if (!skipRefresh) { clearFields(); toggle(); router.refresh(); }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Couldn't save. Try again.");
       throw err;
