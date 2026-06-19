@@ -4,6 +4,7 @@ import type { PageSchema, Section, Brand, Payment } from "@/lib/schema/page-sche
 import { SectionRenderer } from "@/components/blocks/SectionRenderer";
 import { formatCurrency, cn } from "@/lib/utils";
 import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { CartProvider, useCart } from "@/components/cart/CartContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
@@ -65,6 +66,7 @@ function EditPencilInner({ page, isProtected, children }: { page: PageSchema; is
   const [showEdit, setShowEdit] = useState(!isProtected);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
+  const router = useRouter();
 
   useEffect(() => {
     if (!isProtected) { setShowEdit(true); return; }
@@ -92,7 +94,8 @@ function EditPencilInner({ page, isProtected, children }: { page: PageSchema; is
     setSaveErr("");
     try {
       await commitPageEdits(page, fields);
-      window.location.reload();
+      router.refresh();
+      toggle();
     } catch (err) {
       setSaving(false);
       setSaveErr(err instanceof Error ? err.message : "Save failed. Try again.");
@@ -1311,18 +1314,19 @@ function CollectionNav({ brand }: { brand: Brand }) {
 
 // ─── Edit mode floating bar ───────────────────────────────────────
 function EditBar({ page }: { page: PageSchema }) {
-  const { fields, saving, setSaving, saveError, setSaveError } = useEditMode();
+  const { fields, saving, setSaving, saveError, setSaveError, toggle } = useEditMode();
   const hasChanges = Object.keys(fields).length > 0;
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
+  const router = useRouter();
 
-  // skipReload = true when called from the Publish postMessage flow (parent needs the reply)
-  async function handleSave(skipReload = false): Promise<void> {
+  // skipRefresh = true when called from the Publish postMessage flow (parent needs the reply)
+  async function handleSave(skipRefresh = false): Promise<void> {
     setSaving(true);
     setSaveError("");
     try {
       await commitPageEdits(page, fieldsRef.current);
-      if (!skipReload) window.location.reload();
+      if (!skipRefresh) { router.refresh(); toggle(); }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Couldn't save. Try again.");
       throw err;
