@@ -20,14 +20,20 @@ function blobAvailable() {
   );
 }
 
-async function blobSaveRaw(data: StoredPage): Promise<void> {
+async function blobSaveRaw(data: StoredPage, allowOverwrite = true): Promise<boolean> {
   const { put } = await import("@vercel/blob");
-  await put(`pages/${data.slug}.json`, JSON.stringify(data), {
-    access: "private",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: "application/json",
-  });
+  try {
+    await put(`pages/${data.slug}.json`, JSON.stringify(data), {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite,
+      contentType: "application/json",
+    });
+    return true;
+  } catch (err: unknown) {
+    if (!allowOverwrite && err instanceof Error && err.message.toLowerCase().includes("already exists")) return false;
+    throw err;
+  }
 }
 
 async function readStream(stream: ReadableStream): Promise<string> {
@@ -92,10 +98,6 @@ async function blobSlugExists(slug: string, excludeId?: string): Promise<boolean
   return page.id !== excludeId;
 }
 
-// In-flight slug lock — prevents same-instance concurrent saves from racing to the same slug.
-// Not a substitute for distributed locking, but catches the common case on a single Lambda.
-const slugsInFlight = new Set<string>();
-
 // ─── File / memory fallback ───────────────────────────────────────────────────
 
 const DATA_DIR = process.env.VERCEL
@@ -143,12 +145,29 @@ async function writePages(pages: Record<string, StoredPage>) {
 
 export async function savePage(page: PageSchema, editToken?: string): Promise<void> {
   console.log(`[audit] savePage slug="${page.slug}" id="${page.id}" at=${new Date().toISOString()}`);
-  const stored: StoredPage = editToken ? { _editToken: editToken, ...page } : page;
   if (blobAvailable()) {
-    await blobSaveRaw(stored);
-    return;
+    const baseSlug = page.slug;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const slug = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`;
+      const stored: StoredPage = editToken ? { _editToken: editToken, ...page, slug } : { ...page, slug };
+      const saved = await blobSaveRaw(stored, false);
+      if (saved) {
+        page.slug = slug;
+        return;
+      }
+      // Collision: if the existing blob belongs to the same page (regeneration), overwrite it
+      const existing = await blobGet(slug);
+      if (existing && existing.id === page.id) {
+        await blobSaveRaw(stored, true);
+        page.slug = slug;
+        return;
+      }
+      // Different page owns this slug — try next suffix
+    }
+    throw new Error("Could not save page: too many slug collisions");
   }
   return withLock(async () => {
+    const stored: StoredPage = editToken ? { _editToken: editToken, ...page } : page;
     const pages = await readPages();
     pages[page.slug] = stored;
     await writePages(pages);
@@ -161,13 +180,8 @@ export async function ensureUniqueSlug(slug: string, excludeId?: string): Promis
     let candidate = slug;
     let counter = 2;
     while (true) {
-      const taken = slugsInFlight.has(candidate) || (await blobSlugExists(candidate, excludeId));
-      if (!taken) {
-        slugsInFlight.add(candidate);
-        // Release the lock after 15 s — long enough for savePage to complete
-        setTimeout(() => slugsInFlight.delete(candidate), 15_000);
-        return candidate;
-      }
+      const taken = await blobSlugExists(candidate, excludeId);
+      if (!taken) return candidate;
       if (counter > MAX_ATTEMPTS) throw new Error("Could not generate a unique slug after 999 attempts");
       candidate = `${slug}-${counter++}`;
     }
@@ -235,6 +249,7 @@ export async function updatePage(
     }
     const updated: StoredPage = { ...raw, ...updates, updatedAt: new Date().toISOString() };
     await blobSaveRaw(updated);
+    console.log(`[audit] updatePage slug="${slug}" at=${updated.updatedAt}`);
     return stripToken(updated);
   }
   return withLock(async () => {

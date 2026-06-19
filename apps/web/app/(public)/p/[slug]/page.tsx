@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getPage, getPageEditToken } from "@/lib/store/pages";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 import { PageRenderer } from "@/components/templates/PageRenderer";
 import type { Metadata } from "next";
 import { headers } from "next/headers";

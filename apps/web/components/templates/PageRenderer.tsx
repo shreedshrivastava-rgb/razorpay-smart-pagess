@@ -97,6 +97,7 @@ function EditPencilInner({ page, isProtected, children }: { page: PageSchema; is
       setSaving(false);
       clearFields();
       toggle();
+      await new Promise((r) => setTimeout(r, 300));
       router.refresh();
     } catch (err) {
       setSaving(false);
@@ -1328,7 +1329,7 @@ function EditBar({ page }: { page: PageSchema }) {
     setSaveError("");
     try {
       await commitPageEdits(page, fieldsRef.current);
-      if (!skipRefresh) { clearFields(); toggle(); router.refresh(); }
+      if (!skipRefresh) { clearFields(); toggle(); await new Promise((r) => setTimeout(r, 300)); router.refresh(); }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Couldn't save. Try again.");
       throw err;
