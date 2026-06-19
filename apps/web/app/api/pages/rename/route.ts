@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPage, getPageEditToken, savePage, deletePage, ensureUniqueSlug } from "@/lib/store/pages";
+import { getPage, getPageEditToken, ensureUniqueSlug, publishPage } from "@/lib/store/pages";
 
 export async function POST(req: NextRequest) {
   let body: { fromSlug: string; toSlug: string };
@@ -28,14 +28,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
-  // If same slug, no rename needed
-  if (clean === fromSlug) {
-    return NextResponse.json({ success: true, data: { slug: fromSlug } });
-  }
+  const finalSlug = clean === fromSlug ? fromSlug : await ensureUniqueSlug(clean, page.id);
 
-  const finalSlug = await ensureUniqueSlug(clean, page.id);
-  await savePage({ ...page, slug: finalSlug }, editToken ?? undefined);
-  await deletePage(fromSlug);
+  try {
+    await publishPage(fromSlug, finalSlug, editToken ?? "");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Publish failed";
+    if (msg.includes("taken")) return NextResponse.json({ error: "That name is taken — try another." }, { status: 409 });
+    throw err;
+  }
 
   return NextResponse.json({ success: true, data: { slug: finalSlug } });
 }

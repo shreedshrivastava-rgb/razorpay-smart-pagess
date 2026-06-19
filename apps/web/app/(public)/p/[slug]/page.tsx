@@ -9,6 +9,7 @@ import { headers } from "next/headers";
 
 interface Props {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ preview?: string }>;
 }
 
 async function ensureDemoPage(slug: string) {
@@ -29,15 +30,21 @@ async function ensureDemoPage(slug: string) {
   }
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
+  const { preview } = await searchParams;
   await ensureDemoPage(slug);
-  const page = await getPage(slug);
+  const [page, editToken] = await Promise.all([getPage(slug), getPageEditToken(slug)]);
   if (!page) return { title: "Page Not Found" };
+
+  const isDraft = page.status === "draft";
+  const hasValidPreviewToken = preview && editToken && preview === editToken;
+  if (isDraft && !hasValidPreviewToken) return { title: "Page Not Found" };
 
   return {
     title: page.seo.title,
     description: page.seo.description,
+    ...(isDraft ? { robots: { index: false, follow: false } } : {}),
     openGraph: {
       title: page.seo.title,
       description: page.seo.description,
@@ -47,16 +54,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function PublicPage({ params }: Props) {
+export default async function PublicPage({ params, searchParams }: Props) {
   const { slug } = await params;
+  const { preview } = await searchParams;
   await ensureDemoPage(slug);
   const [page, editToken] = await Promise.all([getPage(slug), getPageEditToken(slug)]);
 
   if (!page) notFound();
 
+  const isDraft = page.status === "draft";
+  const hasValidPreviewToken = preview && editToken && preview === editToken;
+  if (isDraft && !hasValidPreviewToken) notFound();
+
   // Pages created before the token system have no stored token — they're unprotected
   // and the PATCH endpoint already allows editing them freely.
   const isProtected = editToken !== null;
 
-  return <PageRenderer page={page} isProtected={isProtected} />;
+  return <PageRenderer page={page} isProtected={isProtected} isDraft={isDraft} />;
 }

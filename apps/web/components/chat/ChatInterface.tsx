@@ -96,6 +96,7 @@ export function ChatInterface() {
   const [previewReady, setPreviewReady] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [generatedEditToken, setGeneratedEditToken] = useState<string | null>(null);
   const [isPublished, setIsPublished] = useState(false);
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [publishSlug, setPublishSlug] = useState("");
@@ -146,7 +147,15 @@ export function ChatInterface() {
         };
         if (parsed.messages?.length) { setMessages(parsed.messages); restoredRef.current = true; }
         if (parsed.context) setContext(parsed.context);
-        if (parsed.generatedSlug) { setGeneratedSlug(parsed.generatedSlug); setPreviewReady(true); setIsPublished(true); }
+        if (parsed.generatedSlug) {
+          setGeneratedSlug(parsed.generatedSlug);
+          setPreviewReady(true);
+          setIsPublished(true);
+          try {
+            const token = localStorage.getItem(`edit_token_${parsed.generatedSlug}`);
+            if (token) setGeneratedEditToken(token);
+          } catch { /* ignore */ }
+        }
         if (typeof parsed.previewVersion === "number") setPreviewVersion(parsed.previewVersion);
       }
     } catch { /* unavailable */ }
@@ -281,6 +290,7 @@ export function ChatInterface() {
       const editToken = json.data?.editToken;
       if (slug) {
         setGeneratedSlug(slug);
+        setGeneratedEditToken(editToken ?? null);
         setPreviewVersion(0);
         setPreviewReady(false);
         void pollUntilReady(slug, mySession);
@@ -506,21 +516,20 @@ export function ChatInterface() {
     // Save any pending inline edits in the preview iframe first
     await triggerIframeSave();
     try {
-      let finalSlug = generatedSlug;
-      if (clean !== generatedSlug) {
-        const res = await fetch("/api/pages/rename", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fromSlug: generatedSlug, toSlug: clean }),
-        });
-        const json = await res.json() as { success?: boolean; data?: { slug?: string }; error?: string };
-        if (!res.ok || !json.success) { setPublishSlugError(json.error ?? "That name is taken — try another."); return; }
-        finalSlug = json.data?.slug ?? clean;
+      // Always call rename/publish — even same slug — so the draft moves to the live namespace
+      const res = await fetch("/api/pages/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromSlug: generatedSlug, toSlug: clean }),
+      });
+      const json = await res.json() as { success?: boolean; data?: { slug?: string }; error?: string };
+      if (!res.ok || !json.success) { setPublishSlugError(json.error ?? "That name is taken — try another."); return; }
+      const finalSlug = json.data?.slug ?? clean;
+      if (finalSlug !== generatedSlug) {
         setGeneratedSlug(finalSlug);
         // Update localStorage ownership keys
         try {
           const token = localStorage.getItem(`edit_token_${generatedSlug}`);
-          // Write new keys before removing old ones — prevents losing the token if a write fails
           if (token) localStorage.setItem(`edit_token_${finalSlug}`, token);
           const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
           owned[finalSlug] = true;
@@ -530,6 +539,7 @@ export function ChatInterface() {
           localStorage.setItem("owned_pages", JSON.stringify(owned));
         } catch { /* ignore */ }
       }
+      setGeneratedEditToken(null);
       setIsPublished(true);
       setPublishModalOpen(false);
       const liveUrl = `${window.location.origin}/p/${finalSlug}`;
@@ -570,6 +580,7 @@ export function ChatInterface() {
     setLoading(false);
     setGenerating(false);
     setGeneratedSlug(null);
+    setGeneratedEditToken(null);
     setPreviewVersion(0);
     setPreviewReady(false);
     setIsPublished(false);
@@ -859,7 +870,7 @@ export function ChatInterface() {
                 <iframe
                   ref={iframeRef}
                   key={`${generatedSlug}-${previewVersion}`}
-                  src={`/p/${generatedSlug}`}
+                  src={`/p/${generatedSlug}${generatedEditToken && !isPublished ? `?preview=${generatedEditToken}` : ""}`}
                   className="absolute inset-0 w-full h-full border-0"
                   title="Page preview"
                 />

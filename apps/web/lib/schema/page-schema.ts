@@ -259,6 +259,7 @@ export const CouponConfigSchema = z.object({
 
 export const PaymentSchema = z.object({
   razorpayKeyId: z.string().default("rzp_test_placeholder"),
+  razorpayMode: z.enum(["test", "live"]).default("test"),
   amount: z.number(),
   originalAmount: z.number().optional(),
   currency: z.string().default("INR"),
@@ -319,6 +320,8 @@ export const PageSchemaValidator = z.object({
   // Pre-order
   isPreOrder: z.boolean().default(false),
   deliveryLabel: z.string().optional(),
+  // Publication state
+  status: z.enum(["draft", "published"]).default("published"),
 });
 
 export type Brand = z.infer<typeof BrandSchema>;

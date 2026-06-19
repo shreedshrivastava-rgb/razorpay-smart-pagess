@@ -13,6 +13,7 @@ interface PageRendererProps {
   page: PageSchema;
   isPreview?: boolean;
   isProtected?: boolean;
+  isDraft?: boolean;
 }
 
 function sanitizeHexColor(color: string | undefined, fallback: string): string {
@@ -51,17 +52,17 @@ async function commitPageEdits(page: PageSchema, fields: Record<string, string>)
 }
 
 // ─── Shared edit pencil — works for every page type ─────────────
-function WithEditPencil({ page, isProtected, children }: { page: PageSchema; isProtected: boolean; children: ReactNode }) {
+function WithEditPencil({ page, isProtected, isDraft, children }: { page: PageSchema; isProtected: boolean; isDraft?: boolean; children: ReactNode }) {
   return (
     <EditModeProvider>
-      <EditPencilInner page={page} isProtected={isProtected}>
+      <EditPencilInner page={page} isProtected={isProtected} isDraft={isDraft}>
         {children}
       </EditPencilInner>
     </EditModeProvider>
   );
 }
 
-function EditPencilInner({ page, isProtected, children }: { page: PageSchema; isProtected: boolean; children: ReactNode }) {
+function EditPencilInner({ page, isProtected, isDraft, children }: { page: PageSchema; isProtected: boolean; isDraft?: boolean; children: ReactNode }) {
   const { editMode, toggle, enable, fields, clearFields } = useEditMode();
   const [showEdit, setShowEdit] = useState(!isProtected);
   const [saving, setSaving] = useState(false);
@@ -107,6 +108,11 @@ function EditPencilInner({ page, isProtected, children }: { page: PageSchema; is
 
   return (
     <>
+      {isDraft && (
+        <div className="fixed top-0 inset-x-0 z-50 bg-amber-400 text-amber-900 text-center text-sm py-1.5 font-medium pointer-events-none">
+          Draft — not visible to the public.
+        </div>
+      )}
       {children}
       {showEdit && (
         <>
@@ -147,7 +153,7 @@ function PageShell({ page, className, style, children }: { page: PageSchema; cla
   );
 }
 
-export function PageRenderer({ page, isPreview = false, isProtected = false }: PageRendererProps) {
+export function PageRenderer({ page, isPreview = false, isProtected = false, isDraft = false }: PageRendererProps) {
   const { brand, sections, payment } = page;
 
   const primaryColor = sanitizeHexColor(brand.primaryColor, "#6366f1");
@@ -166,7 +172,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false }: P
   // ── Landing page: full persuasion funnel, payment card at bottom ──
   if (page.pageType === "landing") {
     return (
-      <WithEditPencil page={page} isProtected={isProtected}>
+      <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft}>
         <PageShell page={page} className={wrapper} style={brandStyle}>
           <CheckoutNav brand={brand} payment={payment} />
           <LandingHero page={page} brand={brand} payment={payment} />
@@ -202,7 +208,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false }: P
   // ── Collection page: multi-product grid with cart, always-on inline editing ──
   if (page.pageType === "collection") {
     return (
-      <WithEditPencil page={page} isProtected={isProtected}>
+      <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft}>
         <CartProvider>
           <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} />
         </CartProvider>
@@ -216,7 +222,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false }: P
   const belowSections = sections.filter((s) => belowFoldTypes.has(s.type));
 
   return (
-    <WithEditPencil page={page} isProtected={isProtected}>
+    <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft}>
       <PageShell page={page} className={wrapper} style={brandStyle}>
         <a href="#pay" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-white focus:text-gray-900 focus:rounded focus:shadow-lg focus:text-sm">
           Skip to payment
@@ -577,7 +583,8 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
   const isDemoKey =
     IS_DEMO_MODE ||
     !payment.razorpayKeyId ||
-    payment.razorpayKeyId === "rzp_test_placeholder";
+    payment.razorpayKeyId === "rzp_test_placeholder" ||
+    payment.razorpayMode === "test";
 
   const discount = couponApplied && payment.couponConfig
     ? Math.round(payment.amount * payment.couponConfig.discountPercent / 100)

@@ -20,10 +20,15 @@ function blobAvailable() {
   );
 }
 
+function blobPath(slug: string, namespace: "draft" | "live"): string {
+  return namespace === "draft" ? `drafts/${slug}.json` : `pages/${slug}.json`;
+}
+
 async function blobSaveRaw(data: StoredPage, allowOverwrite = true): Promise<boolean> {
   const { put } = await import("@vercel/blob");
+  const namespace = data.status === "draft" ? "draft" : "live";
   try {
-    await put(`pages/${data.slug}.json`, JSON.stringify(data), {
+    await put(blobPath(data.slug, namespace), JSON.stringify(data), {
       access: "private",
       addRandomSuffix: false,
       allowOverwrite,
@@ -48,10 +53,15 @@ async function readStream(stream: ReadableStream): Promise<string> {
 
 async function blobGetRaw(slug: string): Promise<StoredPage | null> {
   const { get } = await import("@vercel/blob");
-  const result = await get(`pages/${slug}.json`, { access: "private", useCache: false });
-  if (!result?.stream) return null;
-  const text = await readStream(result.stream);
-  return JSON.parse(text) as StoredPage;
+  // Try live namespace first, fall back to draft
+  for (const ns of ["live", "draft"] as const) {
+    const result = await get(blobPath(slug, ns), { access: "private", useCache: false });
+    if (result?.stream) {
+      const text = await readStream(result.stream);
+      return JSON.parse(text) as StoredPage;
+    }
+  }
+  return null;
 }
 
 function stripToken(stored: StoredPage): PageSchema {
@@ -87,9 +97,12 @@ async function blobGetAll(): Promise<PageSchema[]> {
 
 async function blobDelete(slug: string): Promise<void> {
   const { list, del } = await import("@vercel/blob");
-  const { blobs } = await list({ prefix: `pages/${slug}.json` });
-  const blob = blobs.find((b) => b.pathname === `pages/${slug}.json`);
-  if (blob) await del(blob.url);
+  for (const ns of ["live", "draft"] as const) {
+    const path = blobPath(slug, ns);
+    const { blobs } = await list({ prefix: path });
+    const blob = blobs.find((b) => b.pathname === path);
+    if (blob) await del(blob.url);
+  }
 }
 
 async function blobSlugExists(slug: string, excludeId?: string): Promise<boolean> {
@@ -219,6 +232,47 @@ export async function getAllPages(): Promise<PageSchema[]> {
   return Object.values(pages).map(stripToken).sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
+}
+
+// Moves a draft to the live namespace and marks it published.
+// newSlug allows renaming the slug at publish time (the creator picks the final URL).
+export async function publishPage(slug: string, newSlug: string, editToken: string): Promise<PageSchema> {
+  console.log(`[audit] publishPage from="${slug}" to="${newSlug}" at=${new Date().toISOString()}`);
+  if (blobAvailable()) {
+    const raw = await blobGetRaw(slug);
+    if (!raw) throw new Error("Page not found");
+    // Allow publish for unprotected legacy pages (no stored token)
+    if (raw._editToken && raw._editToken !== editToken) throw new Error("Forbidden");
+
+    const published: StoredPage = { ...raw, slug: newSlug, status: "published", updatedAt: new Date().toISOString() };
+    // Write to live namespace using allowOverwrite: true since ensureUniqueSlug already checked uniqueness
+    await blobSaveRaw(published, true);
+
+    // Remove the old blob (draft or live, in case of a same-slug publish)
+    const { list, del } = await import("@vercel/blob");
+    for (const ns of ["draft", "live"] as const) {
+      const oldPath = blobPath(slug, ns);
+      // Don't delete the blob we just wrote (same slug, same namespace)
+      if (oldPath === blobPath(newSlug, "live")) continue;
+      const { blobs } = await list({ prefix: oldPath });
+      const oldBlob = blobs.find((b) => b.pathname === oldPath);
+      if (oldBlob) await del(oldBlob.url);
+    }
+
+    return stripToken(published);
+  }
+  // File fallback: just update status and rename
+  return withLock(async () => {
+    const pages = await readPages();
+    const stored = pages[slug];
+    if (!stored) throw new Error("Page not found");
+    if (stored._editToken !== editToken) throw new Error("Forbidden");
+    delete pages[slug];
+    const published: StoredPage = { ...stored, slug: newSlug, status: "published", updatedAt: new Date().toISOString() };
+    pages[newSlug] = published;
+    await writePages(pages);
+    return stripToken(published);
+  });
 }
 
 export async function deletePage(slug: string): Promise<void> {

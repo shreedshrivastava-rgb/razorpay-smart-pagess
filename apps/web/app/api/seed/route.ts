@@ -16,6 +16,7 @@ const DEMO_PAGE: PageSchema = {
   },
   template: "modern",
   pageType: "workshop",
+  status: "published" as const,
   maxQuantity: 1,
   isPreOrder: false,
   sections: [
@@ -104,6 +105,7 @@ const DEMO_PAGE: PageSchema = {
   ],
   payment: {
     razorpayKeyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_placeholder",
+    razorpayMode: "test" as const,
     amount: 499900,
     currency: "INR",
     name: "Next.js 15 Weekend Workshop",

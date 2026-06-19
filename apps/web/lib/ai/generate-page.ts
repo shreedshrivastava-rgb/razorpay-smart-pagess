@@ -126,6 +126,7 @@ export async function buildFullPage(input: WizardInput): Promise<PageSchema> {
     sections: generated.sections,
     payment: {
       razorpayKeyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_placeholder",
+      razorpayMode: "test" as const,
       amount: input.price || 0,
       originalAmount: input.originalPrice,
       currency: input.currency || "INR",
@@ -149,6 +150,7 @@ export async function buildFullPage(input: WizardInput): Promise<PageSchema> {
     stockCount: input.stockCount,
     isPreOrder: input.isPreOrder ?? false,
     deliveryLabel: input.deliveryLabel,
+    status: "published" as const,
   };
 
   // For collection pages: overwrite AI-generated product prices with the exact merchant values

@@ -44,6 +44,8 @@ export async function POST(req: NextRequest) {
     }
 
     const page = await buildFullPage(input);
+    page.status = "draft";
+    page.payment.razorpayMode = "test";
 
     if (existingSlug) {
       page.slug = existingSlug;
