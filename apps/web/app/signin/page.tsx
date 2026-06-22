@@ -91,31 +91,6 @@ export default async function SignInPage({
             </button>
           </form>
 
-          {/* Secondary providers — visual parity, not yet enabled */}
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <ComingSoon label="GitHub (coming soon)">
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.34 1.12 2.91.86.09-.66.35-1.12.63-1.38-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.4 9.4 0 0 1 12 6.84c.85 0 1.71.12 2.51.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9v2.82c0 .27.18.6.69.49A10.01 10.01 0 0 0 22 12.25C22 6.58 17.52 2 12 2z" /></svg>
-            </ComingSoon>
-            <ComingSoon label="Apple (coming soon)">
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M16.37 12.78c-.02-2.13 1.74-3.15 1.82-3.2-.99-1.45-2.54-1.65-3.09-1.67-1.31-.13-2.57.77-3.24.77-.67 0-1.7-.75-2.8-.73-1.44.02-2.77.84-3.51 2.12-1.5 2.6-.38 6.44 1.07 8.55.71 1.03 1.55 2.19 2.66 2.15 1.07-.04 1.47-.69 2.76-.69 1.29 0 1.65.69 2.78.67 1.15-.02 1.88-1.05 2.58-2.09.82-1.2 1.16-2.36 1.18-2.42-.03-.01-2.26-.87-2.28-3.43zM14.3 6.25c.59-.72.99-1.71.88-2.71-.85.03-1.89.57-2.5 1.28-.55.63-1.03 1.65-.9 2.62.95.07 1.92-.48 2.52-1.19z" /></svg>
-            </ComingSoon>
-            <ComingSoon label="Facebook (coming soon)">
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.52 1.49-3.91 3.78-3.91 1.09 0 2.24.2 2.24.2v2.47h-1.26c-1.24 0-1.63.78-1.63 1.57v1.88h2.78l-.44 2.91h-2.34V22c4.78-.76 8.44-4.92 8.44-9.94z" /></svg>
-            </ComingSoon>
-          </div>
-
-          {/* OR */}
-          <div className="my-7 flex items-center gap-3 text-xs font-medium text-white/30">
-            <span className="h-px flex-1 border-t border-dashed border-white/15" />
-            OR
-            <span className="h-px flex-1 border-t border-dashed border-white/15" />
-          </div>
-
-          {/* Email / Phone — placeholders for future providers */}
-          <ComingSoonBar icon="mail" label="Continue with Email" />
-          <div className="h-3" />
-          <ComingSoonBar icon="phone" label="Continue with Phone" />
-
           <p className="mt-8 text-center text-xs leading-relaxed text-white/30">
             By continuing, you agree to our{" "}
             <span className="text-white/50 underline underline-offset-2">Terms of Service</span> and{" "}
@@ -184,34 +159,3 @@ function ShowcaseCard({ emoji, title, desc }: { emoji: string; title: string; de
   );
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function ComingSoon({ children, label }: { children: React.ReactNode; label: string }) {
-  return (
-    <span
-      title={label}
-      aria-label={label}
-      className="flex h-12 flex-1 cursor-not-allowed items-center justify-center rounded-2xl bg-white/[0.06] text-white/40 ring-1 ring-white/10"
-    >
-      {children}
-    </span>
-  );
-}
-
-function ComingSoonBar({ icon, label }: { icon: "mail" | "phone"; label: string }) {
-  const path =
-    icon === "mail"
-      ? "M3 8l9 6 9-6M3 8v8a2 2 0 002 2h14a2 2 0 002-2V8M3 8l2-2h14l2 2"
-      : "M7 4h10v16H7zM11 18h2";
-  return (
-    <div
-      title="Coming soon"
-      className="flex w-full cursor-not-allowed items-center justify-center gap-3 rounded-2xl bg-white/[0.04] px-5 py-3.5 text-sm font-semibold text-white/40 ring-1 ring-white/10"
-    >
-      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d={path} />
-      </svg>
-      {label}
-    </div>
-  );
-}
