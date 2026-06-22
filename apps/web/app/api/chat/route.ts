@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withRetry } from "@/lib/retry";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -314,6 +315,7 @@ export async function POST(req: NextRequest) {
   const messagesWithContext: ChatMessage[] = [
     ...messages.slice(0, -1),
     {
+      
       role: "user",
       content: contextSummary
         ? `[Gathered so far: ${contextSummary}]\n\n${messages.at(-1)!.content}`
@@ -322,31 +324,35 @@ export async function POST(req: NextRequest) {
   ];
 
   try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
+    const rawText = await withRetry(
+      async () => {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 8192,
+            system: CHAT_SYSTEM_PROMPT,
+            messages: messagesWithContext,
+          }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`AI API error: ${res.status} ${errText}`);
+        }
+
+        const json = await res.json() as { content: Array<{ type: string; text: string }> };
+        return json.content?.[0]?.text ?? "";
       },
-      body: JSON.stringify({
-        model,
-        max_tokens: 8192,
-        system: CHAT_SYSTEM_PROMPT,
-        messages: messagesWithContext,
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(25_000),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error(`[${reqId}] AI API error:`, res.status, errText);
-      return NextResponse.json({ error: `AI error: ${res.status}` }, { status: 500 });
-    }
-
-    const json = await res.json() as { content: Array<{ type: string; text: string }> };
-    const rawText = json.content?.[0]?.text ?? "";
+      { maxRetries: 2 }
+    );
 
     // Parse the JSON response from the AI
     let jsonText = rawText.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
@@ -358,25 +364,31 @@ export async function POST(req: NextRequest) {
     } catch {
       // Response may be truncated — retry once asking for compact JSON
       console.error(`[${reqId}] Chat JSON parse error, retrying. Raw:`, rawText.slice(0, 300));
-      const retryRes = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({
-          model,
-          max_tokens: 8192,
-          system: CHAT_SYSTEM_PROMPT,
-          messages: [
-            ...messagesWithContext,
-            { role: "assistant", content: rawText },
-            { role: "user", content: "Your JSON was truncated. Return ONLY the complete valid JSON object, no extra text. Keep collectionProducts concise." },
-          ],
-        }),
-        cache: "no-store",
-        signal: AbortSignal.timeout(25_000),
-      });
-      if (!retryRes.ok) throw new Error(`AI retry error: ${retryRes.status}`);
-      const retryJson = await retryRes.json() as { content: Array<{ type: string; text: string }> };
-      jsonText = (retryJson.content?.[0]?.text ?? "").replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+      const retryRawText = await withRetry(
+        async () => {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+            body: JSON.stringify({
+              model,
+              max_tokens: 8192,
+              system: CHAT_SYSTEM_PROMPT,
+              messages: [
+                ...messagesWithContext,
+                { role: "assistant", content: rawText },
+                { role: "user", content: "Your JSON was truncated. Return ONLY the complete valid JSON object, no extra text. Keep collectionProducts concise." },
+              ],
+            }),
+            cache: "no-store",
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (!res.ok) throw new Error(`AI retry error: ${res.status}`);
+          const json = await res.json() as { content: Array<{ type: string; text: string }> };
+          return json.content?.[0]?.text ?? "";
+        },
+        { maxRetries: 1 }
+      );
+      jsonText = retryRawText.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
       const retryCandidate = JSON.parse(jsonText) as unknown;
       if (!isValidChatResponse(retryCandidate)) throw new Error("AI retry response failed structural validation");
       parsed = retryCandidate;

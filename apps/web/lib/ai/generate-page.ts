@@ -1,16 +1,15 @@
 import { buildGenerationPrompt, SYSTEM_PROMPT } from "./prompts";
 import type { PageSchema, WizardInput, Section } from "@/lib/schema/page-schema";
 import { generateId, slugify } from "@/lib/utils";
+import { withRetry } from "@/lib/retry";
 
 // Uses plain fetch so Next.js cannot intercept or modify headers.
-// Endpoint confirmed working via: POST /anthropic/v1/messages  (x-api-key header)
 function getAzureConfig() {
   const key = process.env.AI_API_KEY;
   if (!key) throw new Error("AI_API_KEY environment variable is not configured");
   const base = (process.env.AI_BASE_URL ?? "").replace(/\/$/, "");
   if (!base) throw new Error("AI_BASE_URL environment variable is not configured");
   const model = process.env.AI_MODEL ?? "claude-sonnet-4-6";
-  // base may already contain /anthropic — normalise to always end with /anthropic
   const endpoint = base.endsWith("/anthropic")
     ? `${base}/v1/messages`
     : `${base}/anthropic/v1/messages`;
@@ -23,50 +22,41 @@ interface GeneratedContent {
   sections: Section[];
 }
 
-async function callModel(prompt: string, retriesLeft = 1): Promise<string> {
+async function callModel(prompt: string): Promise<string> {
   const { key, endpoint, model } = getAzureConfig();
 
-  let res: Response;
-  try {
-    res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 8192,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(25_000),
-    });
-  } catch (networkErr) {
-    if (retriesLeft > 0) {
-      await new Promise((r) => setTimeout(r, 1500));
-      return callModel(prompt, retriesLeft - 1);
-    }
-    throw networkErr;
-  }
+  return withRetry(
+    async () => {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 8192,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: "user", content: prompt }],
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(30_000),
+      });
 
-  if (!res.ok) {
-    const err = await res.text();
-    // Retry on transient 5xx or 429 rate-limit
-    if (retriesLeft > 0 && (res.status >= 500 || res.status === 429)) {
-      await new Promise((r) => setTimeout(r, 2000));
-      return callModel(prompt, retriesLeft - 1);
-    }
-    throw new Error(`${res.status} ${err}`);
-  }
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`${res.status} ${err}`);
+      }
 
-  const json = await res.json() as {
-    content: Array<{ type: string; text: string }>;
-  };
+      const json = await res.json() as {
+        content: Array<{ type: string; text: string }>;
+      };
 
-  return json.content?.[0]?.text ?? "";
+      return json.content?.[0]?.text ?? "";
+    },
+    { maxRetries: 3 }
+  );
 }
 
 // Extracts JSON from AI response whether or not it's wrapped in a code fence
@@ -92,7 +82,7 @@ export async function generatePageContent(input: WizardInput): Promise<Generated
     // If JSON was truncated mid-array/object, retry once with a continuation hint
     const retryPrompt = prompt + `\n\nIMPORTANT: Your previous response was truncated. Return the COMPLETE JSON without any truncation. Keep sections concise to fit in the token limit.`;
     try {
-      const retryRaw = await callModel(retryPrompt, 0);
+      const retryRaw = await callModel(retryPrompt);
       return JSON.parse(extractJson(retryRaw)) as GeneratedContent;
     } catch {
       throw new Error(`AI returned invalid JSON after retry. Raw: ${jsonText.slice(0, 300)}`);
