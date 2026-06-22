@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useParams } from "next/navigation";
 import { VoiceButton } from "./VoiceButton";
 import type { ChatContext } from "@/app/api/chat/route";
 import type { PageSchema, WizardInput } from "@/lib/schema/page-schema";
@@ -134,7 +134,13 @@ interface ChatSession {
 
 export function ChatInterface() {
   const searchParams = useSearchParams();
-  const slugParam = searchParams.get("slug");
+  const params = useParams();
+  // Each project has its own URL: /chat/<slug>. Fall back to the legacy
+  // ?slug= query for any older links still pointing at it.
+  const routeSlug = typeof params.slug === "string"
+    ? params.slug
+    : Array.isArray(params.slug) ? params.slug[0] : null;
+  const slugParam = routeSlug ?? searchParams.get("slug");
   const { speak, stop: stopAudio } = useTTS();
   const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [context, setContext] = useState<ChatContext>({});
@@ -167,10 +173,17 @@ export function ChatInterface() {
   const storageWarnedRef = useRef(false);
   const initialPromptSentRef = useRef(false);
   const chatSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The slug currently loaded into the view. Lets the URL-driven open-project
+  // effect skip a reload when the URL just got normalized to /chat/<slug> for a
+  // page we already have open (e.g. right after generating it).
+  const loadedSlugRef = useRef<string | null>(null);
 
   const pageUrl = generatedSlug
     ? `${typeof window !== "undefined" ? window.location.origin : ""}/p/${generatedSlug}`
     : "";
+
+  // Keep the "loaded slug" marker in sync with whatever page is on screen.
+  useEffect(() => { loadedSlugRef.current = generatedSlug; }, [generatedSlug]);
 
   // Load page history from localStorage
   useEffect(() => {
@@ -201,13 +214,16 @@ export function ChatInterface() {
       if (saved) {
         const parsed = JSON.parse(saved) as {
           messages?: Message[]; context?: ChatContext;
-          generatedSlug?: string | null; previewVersion?: number;
+          generatedSlug?: string | null; previewVersion?: number; isPublished?: boolean;
         };
         if (parsed.messages?.length) { setMessages(parsed.messages); restoredRef.current = true; }
         if (parsed.context) setContext(parsed.context);
         if (parsed.generatedSlug) {
           setGeneratedSlug(parsed.generatedSlug);
+          setIsPublished(parsed.isPublished ?? false);
           setPreviewReady(true);
+          // Reflect the restored project in the URL without a remount.
+          window.history.replaceState({}, "", `/chat/${parsed.generatedSlug}`);
           try {
             const token = localStorage.getItem(`edit_token_${parsed.generatedSlug}`);
             if (token) setGeneratedEditToken(token);
@@ -296,7 +312,7 @@ export function ChatInterface() {
     const isPristine = !generatedSlug && messages.length <= 1;
     if (isPristine) return;
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ messages, context, generatedSlug, previewVersion }));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ messages, context, generatedSlug, previewVersion, isPublished }));
     } catch {
       if (!storageWarnedRef.current) {
         storageWarnedRef.current = true;
@@ -308,10 +324,11 @@ export function ChatInterface() {
           context,
           generatedSlug,
           previewVersion,
+          isPublished,
         }));
       } catch { /* storage fully unavailable */ }
     }
-  }, [messages, context, generatedSlug, previewVersion]);
+  }, [messages, context, generatedSlug, previewVersion, isPublished]);
 
   // Persist the conversation server-side (debounced) so it survives across tabs,
   // browsers and devices. Owner-scoped via the page; keyed by slug.
@@ -353,12 +370,41 @@ export function ChatInterface() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Open an existing page in the chat + preview interface (/chat?slug=...)
+  // Open an existing page in the chat + preview interface (/chat/<slug>).
+  // Re-fires on SPA navigation between projects; skips reloading the page we
+  // already have open (e.g. right after generating and normalizing the URL).
   useEffect(() => {
     if (!slugParam) return;
+    if (slugParam === loadedSlugRef.current) return;
     restoredRef.current = true; // suppress greeting TTS and prompt auto-send
     stopAudio();
-    window.history.replaceState({}, "", window.location.pathname);
+
+    // Fast path: a refresh in the same tab still has this page in sessionStorage.
+    // Restore instantly — no flash, and no loss within the server-save debounce.
+    try {
+      const cached = sessionStorage.getItem(STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as {
+          messages?: Message[]; context?: ChatContext;
+          generatedSlug?: string | null; previewVersion?: number; isPublished?: boolean;
+        };
+        if (parsed.generatedSlug === slugParam && parsed.messages?.length) {
+          loadedSlugRef.current = slugParam;
+          setMessages(parsed.messages);
+          setContext(parsed.context ?? {});
+          setGeneratedSlug(slugParam);
+          setPreviewVersion(parsed.previewVersion ?? 0);
+          setIsPublished(parsed.isPublished ?? false);
+          setPreviewReady(true);
+          try {
+            const t = localStorage.getItem(`edit_token_${slugParam}`);
+            if (t) setGeneratedEditToken(t);
+          } catch { /* ignore */ }
+          return;
+        }
+      }
+    } catch { /* ignore — fall through to server fetch */ }
+
     let cancelled = false;
     (async () => {
       try {
@@ -457,6 +503,7 @@ export function ChatInterface() {
     stopAudio();
     sessionIdRef.current += 1;
     inflightRef.current = false;
+    loadedSlugRef.current = session.slug; // guard the URL-open effect before navigating
     setMessages(session.messages?.length ? session.messages : [GREETING]);
     setContext(session.context ?? {});
     setGeneratedSlug(session.slug);
@@ -469,12 +516,14 @@ export function ChatInterface() {
     setError("");
     setPendingPhotoDataUrls([]);
     setHistoryOpen(false);
+    window.history.replaceState({}, "", `/chat/${session.slug}`);
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
         messages: session.messages?.length ? session.messages : [GREETING],
         context: session.context ?? {},
         generatedSlug: session.slug,
         previewVersion: session.previewVersion ?? 0,
+        isPublished: true,
       }));
     } catch { /* unavailable */ }
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -510,10 +559,15 @@ export function ChatInterface() {
       const slug = json.data?.slug;
       const editToken = json.data?.editToken;
       if (slug) {
+        loadedSlugRef.current = slug;
         setGeneratedSlug(slug);
         setGeneratedEditToken(editToken ?? null);
         setPreviewVersion(0);
         setPreviewReady(false);
+        // Give the freshly-built page its own URL (refresh/share keeps it).
+        // replaceState updates the address bar without a Next navigation, so the
+        // in-progress conversation state isn't lost to a route remount.
+        window.history.replaceState({}, "", `/chat/${slug}`);
         void pollUntilReady(slug, mySession, editToken);
         try {
           const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
@@ -749,7 +803,9 @@ export function ChatInterface() {
       if (!res.ok || !json.success) { setPublishSlugError(json.error ?? "That name is taken — try another."); return; }
       const finalSlug = json.data?.slug ?? clean;
       if (finalSlug !== generatedSlug) {
+        loadedSlugRef.current = finalSlug;
         setGeneratedSlug(finalSlug);
+        window.history.replaceState({}, "", `/chat/${finalSlug}`); // publish can rename — keep URL in sync
         // Update localStorage ownership keys
         try {
           const token = localStorage.getItem(`edit_token_${generatedSlug}`);
@@ -810,8 +866,12 @@ export function ChatInterface() {
     setPublishModalOpen(false);
     setError("");
     setPendingPhotoDataUrls([]);
+    loadedSlugRef.current = null;
     try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
     restoredRef.current = false;
+    // Drop the per-project URL without a Next navigation (a real nav would
+    // remount and trigger auto-restore of the most recent page — not wanted here).
+    window.history.replaceState({}, "", "/chat");
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 

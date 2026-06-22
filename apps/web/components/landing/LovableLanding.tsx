@@ -297,7 +297,7 @@ function Sidebar({
             {recents.map((p) => (
               <Link
                 key={p.id}
-                href={`/chat?slug=${encodeURIComponent(p.slug)}`}
+                href={`/chat/${encodeURIComponent(p.slug)}`}
                 className="block truncate rounded-lg px-3 py-1.5 text-sm text-slate-600 transition hover:bg-blue-50 hover:text-slate-900"
               >
                 {p.brand?.name || p.payment?.name || "Untitled page"}
@@ -400,7 +400,7 @@ function TemplateCard({ name, desc, from, to, emoji }: { name: string; desc: str
 function ProjectCard({ page }: { page: PageSchema }) {
   const pageUrl = `/p/${page.slug}`;
   return (
-    <Link href={`/chat?slug=${encodeURIComponent(page.slug)}`} className="group block">
+    <Link href={`/chat/${encodeURIComponent(page.slug)}`} className="group block">
       {/* Scaled-down live preview of the actual page */}
       <div className="relative mb-3 h-44 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200 transition group-hover:ring-blue-300">
         <iframe
