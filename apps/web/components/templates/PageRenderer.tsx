@@ -9,7 +9,7 @@ import { CartProvider, useCart } from "@/components/cart/CartContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
 import { inferProductEmoji, darken } from "@/lib/product-visual";
-import { generatedImageUrl, heroImagePrompt } from "@/lib/image-gen";
+import { generatedImageUrl, heroImagePrompt, productImagePrompt } from "@/lib/image-gen";
 
 interface PageRendererProps {
   page: PageSchema;
@@ -1040,6 +1040,10 @@ function BrandedProductCard({ brand, payment, pageType }: { brand: Brand; paymen
   const deep = darken(primary, 0.22);
   const emoji = inferProductEmoji(payment.name, pageType);
   const formattedPrice = formatCurrency(payment.amount, payment.currency);
+  const [imgFailed, setImgFailed] = useState(false);
+  const imageUrl = generatedImageUrl(productImagePrompt(payment.name, brand.name, payment.description), {
+    width: 800, height: 600, seedKey: `${brand.name}:${payment.name}`,
+  });
 
   return (
     <div
@@ -1067,6 +1071,18 @@ function BrandedProductCard({ brand, payment, pageType }: { brand: Brand; paymen
         </filter>
         <rect width="100%" height="100%" filter="url(#pg)" />
       </svg>
+
+      {/* Real generated image — covers the gradient+emoji once it loads */}
+      {!imgFailed && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl}
+          alt={payment.name}
+          fetchPriority="high"
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={() => setImgFailed(true)}
+        />
+      )}
 
       {/* Brand badge top-left */}
       <div className="absolute top-4 left-4 flex items-center gap-2">

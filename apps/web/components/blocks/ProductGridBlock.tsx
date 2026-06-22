@@ -127,7 +127,7 @@ function ProductCard({
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         ) : (
-          <GeneratedProductBanner brand={brand} name={displayName} pageType="product" />
+          <GeneratedProductBanner brand={brand} name={displayName} description={displayDesc} pageType="product" />
         )}
 
         {/* Edit overlay — only visible to page creator in edit mode */}

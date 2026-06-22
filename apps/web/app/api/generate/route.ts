@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { randomBytes } from "crypto";
 import { buildFullPage } from "@/lib/ai/generate-page";
 import { savePage, ensureUniqueSlug, isPageOwner } from "@/lib/store/pages";
 import { ownerId } from "@/auth";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
+import { collectPageImageUrls, warmImages } from "@/lib/image-gen";
 import type { WizardInput } from "@/lib/schema/page-schema";
 
 export async function POST(req: NextRequest) {
@@ -51,6 +52,11 @@ export async function POST(req: NextRequest) {
 
     const editToken = randomBytes(16).toString("hex");
     await savePage(page, editToken, owner);
+
+    // Pre-warm AI image generation after the response is sent, so the page's
+    // generated visuals are ready (or already rendering) by the time it's viewed.
+    const imageUrls = collectPageImageUrls(page);
+    if (imageUrls.length) after(() => warmImages(imageUrls));
 
     return NextResponse.json({
       success: true,

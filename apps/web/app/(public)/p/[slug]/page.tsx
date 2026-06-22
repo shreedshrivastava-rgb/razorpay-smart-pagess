@@ -78,5 +78,12 @@ export default async function PublicPage({ params, searchParams }: Props) {
   // and the PATCH endpoint already allows editing them freely.
   const isProtected = editToken !== null;
 
-  return <PageRenderer page={page} isProtected={isProtected} isDraft={isDraft} />;
+  return (
+    <>
+      {/* Warm up the connection to the AI image host so generated visuals appear faster */}
+      <link rel="preconnect" href="https://image.pollinations.ai" />
+      <link rel="dns-prefetch" href="https://image.pollinations.ai" />
+      <PageRenderer page={page} isProtected={isProtected} isDraft={isDraft} />
+    </>
+  );
 }

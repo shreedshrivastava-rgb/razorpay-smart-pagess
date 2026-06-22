@@ -25,10 +25,14 @@ export function generatedImageUrl(
     `?width=${width}&height=${height}&nologo=true&seed=${seed}`;
 }
 
-// Prompt for a single product's photo, grounded in the brand context.
+// Prompt for a single product's photo, grounded in the brand context. Leads with
+// the description so vague/brand-invented names (e.g. "Beddy") still produce a
+// relevant image.
 export function productImagePrompt(name: string, brandName?: string, description?: string): string {
-  const ctx = [description, brandName].filter(Boolean).join(", ");
-  return `professional product photography of ${name}${ctx ? `, ${ctx}` : ""}, ` +
+  const desc = description?.trim();
+  const subject = desc ? `${name}, ${desc}` : name;
+  const ctx = brandName ? `, by ${brandName}` : "";
+  return `professional product photography of ${subject}${ctx}, ` +
     `centered, clean studio background, soft lighting, high detail, photorealistic, no text, no watermark`;
 }
 
@@ -37,4 +41,47 @@ export function heroImagePrompt(brandName: string, description?: string): string
   const subject = description?.trim() || brandName;
   return `${subject}, lifestyle hero banner photography for ${brandName}, ` +
     `wide cinematic composition, vibrant, professional, photorealistic, no text, no watermark`;
+}
+
+import type { PageSchema } from "@/lib/schema/page-schema";
+
+// The generated-image URLs a page will request when it has no uploaded photos.
+// Used to pre-warm the Pollinations cache right after generation so the images
+// are ready (or already rendering) by the time the creator views the page.
+// MUST mirror the seedKey/size used in the renderer components or the warmed
+// URL won't match what the page requests.
+export function collectPageImageUrls(page: PageSchema): string[] {
+  const urls: string[] = [];
+  const brandName = page.brand?.name ?? "";
+  const primaryDesc = page.payment?.description;
+
+  if (page.pageType === "collection") {
+    urls.push(generatedImageUrl(heroImagePrompt(brandName, primaryDesc), {
+      width: 1280, height: 640, seedKey: `hero:${brandName}`,
+    }));
+    for (const section of page.sections ?? []) {
+      if (section.type !== "product-grid") continue;
+      for (const item of section.items ?? []) {
+        if (item.imageUrl) continue;
+        urls.push(generatedImageUrl(productImagePrompt(item.name, brandName, item.description), {
+          width: 600, height: 450, seedKey: `${brandName}:${item.name}`,
+        }));
+      }
+    }
+  } else if (!page.productImageUrl && page.payment?.name) {
+    urls.push(generatedImageUrl(productImagePrompt(page.payment.name, brandName, primaryDesc), {
+      width: 800, height: 600, seedKey: `${brandName}:${page.payment.name}`,
+    }));
+  }
+  return urls;
+}
+
+// Fire off the warm requests (best-effort, capped, never throws). Each GET
+// triggers Pollinations to start generating + caching that image.
+export async function warmImages(urls: string[]): Promise<void> {
+  await Promise.allSettled(
+    urls.slice(0, 8).map((url) =>
+      fetch(url, { method: "GET", signal: AbortSignal.timeout(20_000) }).catch(() => undefined)
+    )
+  );
 }

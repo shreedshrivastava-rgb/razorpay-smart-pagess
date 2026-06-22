@@ -11,10 +11,12 @@ import { generatedImageUrl, productImagePrompt } from "@/lib/image-gen";
 export function GeneratedProductBanner({
   brand,
   name,
+  description,
   pageType = "product",
 }: {
   brand: { name: string; primaryColor: string; secondaryColor?: string };
   name: string;
+  description?: string;
   pageType?: string;
 }) {
   const primary = brand.primaryColor || "#6366f1";
@@ -22,7 +24,7 @@ export function GeneratedProductBanner({
   const emoji = inferProductEmoji(name, pageType);
   const [imgFailed, setImgFailed] = useState(false);
 
-  const imageUrl = generatedImageUrl(productImagePrompt(name, brand.name), {
+  const imageUrl = generatedImageUrl(productImagePrompt(name, brand.name, description), {
     width: 600,
     height: 450,
     seedKey: `${brand.name}:${name}`,
@@ -79,7 +81,7 @@ export function GeneratedProductBanner({
         <img
           src={imageUrl}
           alt={name}
-          loading="lazy"
+          fetchPriority="high"
           className="absolute inset-0 w-full h-full object-cover"
           onError={() => setImgFailed(true)}
         />
