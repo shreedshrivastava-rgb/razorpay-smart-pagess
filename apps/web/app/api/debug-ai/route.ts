@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 
 export async function GET(req: NextRequest) {
+  if (process.env.NODE_ENV !== "development") {
+    const session = await auth();
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+  }
+
   const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
   const oidcToken = process.env.VERCEL_OIDC_TOKEN;
   const storeId = process.env.BLOB_STORE_ID;
@@ -14,7 +22,6 @@ export async function GET(req: NextRequest) {
   let slugRead: unknown = "skipped";
 
   if (blobAvailable) {
-    // Test write + read with overwrite allowed
     try {
       const { put, get } = await import("@vercel/blob");
       const ts = Date.now();
@@ -38,19 +45,16 @@ export async function GET(req: NextRequest) {
       writeResult = { error: String(e) };
     }
 
-    // Test reading a specific page slug if provided
     if (slug) {
       try {
         const { get, list } = await import("@vercel/blob");
         const pathname = `pages/${slug}.json`;
 
-        // Try direct get
         const getResult = await get(pathname, { access: "private" });
         if (getResult) {
           const text = await Promise.race([new Response(getResult.stream).text(), new Promise<never>((_, r) => setTimeout(() => r(new Error("timeout")), 10_000))]);
           slugRead = { method: "get", ok: true, dataLength: text.length, preview: text.slice(0, 100) };
         } else {
-          // Fallback: try listing to see if blob exists
           const { blobs } = await list({ prefix: `pages/${slug}` });
           slugRead = { method: "list", ok: false, getReturnedNull: true, blobsFound: blobs.map((b) => b.pathname) };
         }
