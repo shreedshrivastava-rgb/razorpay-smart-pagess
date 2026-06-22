@@ -141,15 +141,17 @@ async function ensureDataDir() {
 }
 
 async function readPages(): Promise<Record<string, StoredPage>> {
-  if (Object.keys(memCache).length > 0) return memCache;
+  // The file on disk is the source of truth. In Next.js dev the API route and
+  // the public page route can load this module as separate bundles, each with
+  // its own memCache — so a page just saved by /api/generate must still become
+  // visible to /p/[slug]. Always merge the file in rather than trusting a
+  // possibly-stale in-memory snapshot.
   try {
     const content = await readFile(PAGES_FILE, "utf-8");
     const parsed = JSON.parse(content) as Record<string, StoredPage>;
     Object.assign(memCache, parsed);
-    return memCache;
-  } catch {
-    return {};
-  }
+  } catch { /* file missing or unreadable — fall back to whatever is cached */ }
+  return memCache;
 }
 
 async function writePages(pages: Record<string, StoredPage>) {
