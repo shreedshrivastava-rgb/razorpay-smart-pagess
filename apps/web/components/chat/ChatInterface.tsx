@@ -186,6 +186,8 @@ export function ChatInterface() {
   // Restore from sessionStorage; fall back to most recent history entry when opening a fresh tab
   useEffect(() => {
     if (slugParam) return;
+    // ?prompt= means the user is starting a new chat — don't restore a previous session
+    if (new URLSearchParams(window.location.search).get("prompt")) return;
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -298,13 +300,13 @@ export function ChatInterface() {
 
   // Auto-send an initial prompt handed off from the landing page (/chat?prompt=...)
   useEffect(() => {
-    if (initialPromptSentRef.current || restoredRef.current) return;
+    if (initialPromptSentRef.current) return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("slug")) return; // slug deep-links are handled below
+    if (params.get("slug")) return; // slug deep-links are handled separately
     const initial = params.get("prompt");
     if (initial && initial.trim()) {
       initialPromptSentRef.current = true;
-      // Strip the query param so a refresh doesn't resend it
+      restoredRef.current = true; // prevent API auto-restore from overriding this fresh chat
       window.history.replaceState({}, "", window.location.pathname);
       void sendMessage(initial.trim());
     }
