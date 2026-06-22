@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPage, getPageEditToken, ensureUniqueSlug, publishPage, isPageOwner } from "@/lib/store/pages";
+import { getPage, getPageEditToken, ensureUniqueSlug, publishPage, isPageOwner, updatePage } from "@/lib/store/pages";
+import { bakeGeneratedImages } from "@/lib/image-bake";
 import { ownerId } from "@/auth";
 
 export async function POST(req: NextRequest) {
@@ -37,6 +38,13 @@ export async function POST(req: NextRequest) {
   }
 
   const finalSlug = clean === fromSlug ? fromSlug : await ensureUniqueSlug(clean, page.id);
+
+  // Bake generated images into permanent Blob storage so the live page loads
+  // instantly (no on-view AI generation / load flash). Best-effort.
+  try {
+    const baked = await bakeGeneratedImages(page);
+    if (baked) await updatePage(fromSlug, baked);
+  } catch { /* non-fatal — page still renders with live-generated images */ }
 
   try {
     await publishPage(fromSlug, finalSlug, editToken ?? "");
