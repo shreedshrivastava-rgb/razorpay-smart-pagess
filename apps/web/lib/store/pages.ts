@@ -2,19 +2,25 @@ import { writeFile, readFile, mkdir } from "fs/promises";
 import path from "path";
 import type { PageSchema } from "@/lib/schema/page-schema";
 import { unstable_noStore as noStore } from "next/cache";
+import { logger } from "@/lib/logger";
+import {
+  savePageDb,
+  getPageDb,
+  getPageEditTokenDb,
+  isPageOwnerDb,
+  getAllPagesDb,
+  deletePageDb,
+  updatePageDb,
+  ensureUniqueSlugDb,
+  publishPageDb,
+  isDbAvailable,
+} from "@/lib/db/pages-store";
 
-// ─── Vercel Blob storage ──────────────────────────────────────────────────────
-// When BLOB_READ_WRITE_TOKEN is set (Blob store connected), pages are stored as
-// JSON objects in Blob. Falls back to in-memory + /tmp for local dev.
+// ─── Storage backend selection ──────────────────────────────────────────
+// Priority: Database → Vercel Blob → File fallback
 
-// StoredPage is what lives in the blob/file. The _editToken and _ownerId fields
-// are internal: they are never returned to callers of getPage() and never
-// serialized to the client. _ownerId is the email of the user who owns the page.
 type StoredPage = PageSchema & { _editToken?: string; _ownerId?: string };
 
-// Legacy pages created before auth have no _ownerId. They're attributed to the
-// email in PRIMARY_OWNER_EMAIL (if set) so an existing workspace isn't orphaned;
-// otherwise they belong to nobody and are hidden from every user's list.
 function ownsPage(stored: StoredPage, ownerId: string): boolean {
   if (stored._ownerId) return stored._ownerId === ownerId;
   const primary = process.env.PRIMARY_OWNER_EMAIL;
@@ -22,8 +28,6 @@ function ownsPage(stored: StoredPage, ownerId: string): boolean {
 }
 
 function blobAvailable() {
-  // BLOB_READ_WRITE_TOKEN: manual token (local dev / explicit setup)
-  // VERCEL_OIDC_TOKEN + BLOB_STORE_ID: auto-injected by Vercel at runtime (production)
   return Boolean(
     process.env.BLOB_READ_WRITE_TOKEN ||
     (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID)
@@ -63,7 +67,6 @@ async function readStream(stream: ReadableStream): Promise<string> {
 
 async function blobGetRaw(slug: string): Promise<StoredPage | null> {
   const { get } = await import("@vercel/blob");
-  // Try live namespace first, fall back to draft
   for (const ns of ["live", "draft"] as const) {
     const result = await get(blobPath(slug, ns), { access: "private", useCache: false });
     if (result?.stream) {
@@ -110,20 +113,14 @@ async function blobGetAll(ownerId?: string): Promise<PageSchema[]> {
 async function blobDelete(slug: string): Promise<void> {
   const { list, del } = await import("@vercel/blob");
   for (const ns of ["live", "draft"] as const) {
-    const path = blobPath(slug, ns);
-    const { blobs } = await list({ prefix: path });
-    const blob = blobs.find((b) => b.pathname === path);
+    const p = blobPath(slug, ns);
+    const { blobs } = await list({ prefix: p });
+    const blob = blobs.find((b) => b.pathname === p);
     if (blob) await del(blob.url);
   }
 }
 
-async function blobSlugExists(slug: string, excludeId?: string): Promise<boolean> {
-  const page = await blobGet(slug);
-  if (!page) return false;
-  return page.id !== excludeId;
-}
-
-// ─── File / memory fallback ───────────────────────────────────────────────────
+// ─── File fallback ───────────────────────────────────────────────────
 
 const DATA_DIR = process.env.VERCEL
   ? "/tmp/.smart-pages-data"
@@ -166,14 +163,21 @@ async function writePages(pages: Record<string, StoredPage>) {
   } catch { /* non-fatal */ }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─── Public API ──────────────────────────────────────────────────────
 
 export async function savePage(page: PageSchema, editToken?: string, ownerId?: string): Promise<void> {
-  console.log(`[audit] savePage slug="${page.slug}" id="${page.id}" owner="${ownerId ?? "-"}" at=${new Date().toISOString()}`);
+  logger.info({ slug: page.slug, id: page.id, owner: ownerId ?? "-" }, "savePage");
+
+  if (isDbAvailable()) {
+    await savePageDb(page, editToken, ownerId);
+    return;
+  }
+
   const meta = {
     ...(editToken ? { _editToken: editToken } : {}),
     ...(ownerId ? { _ownerId: ownerId } : {}),
   };
+
   if (blobAvailable()) {
     const baseSlug = page.slug;
     for (let attempt = 0; attempt < 10; attempt++) {
@@ -184,17 +188,16 @@ export async function savePage(page: PageSchema, editToken?: string, ownerId?: s
         page.slug = slug;
         return;
       }
-      // Collision: if the existing blob belongs to the same page (regeneration), overwrite it
       const existing = await blobGet(slug);
       if (existing && existing.id === page.id) {
         await blobSaveRaw(stored, true);
         page.slug = slug;
         return;
       }
-      // Different page owns this slug — try next suffix
     }
     throw new Error("Could not save page: too many slug collisions");
   }
+
   return withLock(async () => {
     const stored: StoredPage = { ...meta, ...page };
     const pages = await readPages();
@@ -204,17 +207,21 @@ export async function savePage(page: PageSchema, editToken?: string, ownerId?: s
 }
 
 export async function ensureUniqueSlug(slug: string, excludeId?: string): Promise<string> {
+  if (isDbAvailable()) return ensureUniqueSlugDb(slug, excludeId);
+
   if (blobAvailable()) {
     const MAX_ATTEMPTS = 999;
     let candidate = slug;
     let counter = 2;
     while (true) {
-      const taken = await blobSlugExists(candidate, excludeId);
+      const taken = await blobGet(candidate);
       if (!taken) return candidate;
+      if (taken.id === excludeId) return candidate;
       if (counter > MAX_ATTEMPTS) throw new Error("Could not generate a unique slug after 999 attempts");
       candidate = `${slug}-${counter++}`;
     }
   }
+
   const pages = await readPages();
   if (!pages[slug] || pages[slug].id === excludeId) return slug;
   const MAX_LOCAL = 999;
@@ -226,6 +233,7 @@ export async function ensureUniqueSlug(slug: string, excludeId?: string): Promis
 
 export async function getPage(slug: string): Promise<PageSchema | null> {
   noStore();
+  if (isDbAvailable()) return getPageDb(slug);
   if (blobAvailable()) return blobGet(slug);
   const pages = await readPages();
   const stored = pages[slug];
@@ -234,6 +242,7 @@ export async function getPage(slug: string): Promise<PageSchema | null> {
 
 export async function getPageEditToken(slug: string): Promise<string | null> {
   noStore();
+  if (isDbAvailable()) return getPageEditTokenDb(slug);
   if (blobAvailable()) {
     const raw = await blobGetRaw(slug);
     return raw?._editToken ?? null;
@@ -242,10 +251,10 @@ export async function getPageEditToken(slug: string): Promise<string | null> {
   return pages[slug]?._editToken ?? null;
 }
 
-// True if `ownerId` is allowed to manage the page at `slug`. Legacy unowned
-// pages resolve to PRIMARY_OWNER_EMAIL via ownsPage().
 export async function isPageOwner(slug: string, ownerId: string): Promise<boolean> {
   noStore();
+  if (isDbAvailable()) return isPageOwnerDb(slug, ownerId);
+
   let stored: StoredPage | null | undefined;
   if (blobAvailable()) {
     stored = await blobGetRaw(slug);
@@ -257,7 +266,9 @@ export async function isPageOwner(slug: string, ownerId: string): Promise<boolea
 }
 
 export async function getAllPages(ownerId?: string): Promise<PageSchema[]> {
+  if (isDbAvailable()) return getAllPagesDb(ownerId ?? undefined);
   if (blobAvailable()) return blobGetAll(ownerId);
+
   const pages = await readPages();
   return Object.values(pages)
     .filter((p) => !ownerId || ownsPage(p, ownerId))
@@ -265,25 +276,24 @@ export async function getAllPages(ownerId?: string): Promise<PageSchema[]> {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-// Moves a draft to the live namespace and marks it published.
-// newSlug allows renaming the slug at publish time (the creator picks the final URL).
 export async function publishPage(slug: string, newSlug: string, editToken: string): Promise<PageSchema> {
-  console.log(`[audit] publishPage from="${slug}" to="${newSlug}" at=${new Date().toISOString()}`);
+  logger.info({ from: slug, to: newSlug }, "publishPage");
+
+  if (isDbAvailable()) {
+    return publishPageDb(slug, newSlug, editToken);
+  }
+
   if (blobAvailable()) {
     const raw = await blobGetRaw(slug);
     if (!raw) throw new Error("Page not found");
-    // Allow publish for unprotected legacy pages (no stored token)
     if (raw._editToken && raw._editToken !== editToken) throw new Error("Forbidden");
 
     const published: StoredPage = { ...raw, slug: newSlug, status: "published", updatedAt: new Date().toISOString() };
-    // Write to live namespace using allowOverwrite: true since ensureUniqueSlug already checked uniqueness
     await blobSaveRaw(published, true);
 
-    // Remove the old blob (draft or live, in case of a same-slug publish)
     const { list, del } = await import("@vercel/blob");
     for (const ns of ["draft", "live"] as const) {
       const oldPath = blobPath(slug, ns);
-      // Don't delete the blob we just wrote (same slug, same namespace)
       if (oldPath === blobPath(newSlug, "live")) continue;
       const { blobs } = await list({ prefix: oldPath });
       const oldBlob = blobs.find((b) => b.pathname === oldPath);
@@ -292,7 +302,7 @@ export async function publishPage(slug: string, newSlug: string, editToken: stri
 
     return stripToken(published);
   }
-  // File fallback: just update status and rename
+
   return withLock(async () => {
     const pages = await readPages();
     const stored = pages[slug];
@@ -307,7 +317,11 @@ export async function publishPage(slug: string, newSlug: string, editToken: stri
 }
 
 export async function deletePage(slug: string): Promise<void> {
-  console.log(`[audit] deletePage slug="${slug}" at=${new Date().toISOString()}`);
+  logger.info({ slug }, "deletePage");
+  if (isDbAvailable()) {
+    await deletePageDb(slug);
+    return;
+  }
   if (blobAvailable()) {
     await blobDelete(slug);
     return;
@@ -325,8 +339,9 @@ export async function updatePage(
   updates: Partial<PageSchema>,
   expectedUpdatedAt?: string
 ): Promise<PageSchema | null> {
+  if (isDbAvailable()) return updatePageDb(slug, updates, expectedUpdatedAt);
+
   if (blobAvailable()) {
-    // Use raw read to preserve _editToken through the update
     const raw = await blobGetRaw(slug);
     if (!raw) return null;
     if (expectedUpdatedAt && raw.updatedAt !== expectedUpdatedAt) {
@@ -334,9 +349,9 @@ export async function updatePage(
     }
     const updated: StoredPage = { ...raw, ...updates, updatedAt: new Date().toISOString() };
     await blobSaveRaw(updated);
-    console.log(`[audit] updatePage slug="${slug}" at=${updated.updatedAt}`);
     return stripToken(updated);
   }
+
   return withLock(async () => {
     const pages = await readPages();
     if (!pages[slug]) return null;
