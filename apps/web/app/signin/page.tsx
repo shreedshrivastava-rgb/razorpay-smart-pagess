@@ -75,9 +75,7 @@ export default async function SignInPage({
             </span>
           </h1>
 
-          <p className="mx-auto mt-3 mb-8 max-w-xs text-center text-sm leading-relaxed text-white/45">
-            Just describe what you sell — we&apos;ll build a beautiful Razorpay checkout page for you.
-          </p>
+          <div className="mb-8" />
 
           {/* Google — the working provider */}
           <form
@@ -104,7 +102,7 @@ export default async function SignInPage({
           <ul className="mt-7 space-y-3">
             {[
               "Describe it in plain English — or just speak",
-              "Razorpay checkout, built in and ready to take payments",
+              "Razorpay checkout, built in and ready",
               "Edit copy, price, and design live — no code",
             ].map((feature) => (
               <li key={feature} className="flex items-start gap-3 text-sm text-white/65">
