@@ -54,7 +54,7 @@ export default async function SignInPage({
         {/* Centered auth column */}
         <div className="relative z-10 mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-4">
           {/* 3D-ish glyph */}
-          <div className="mb-8 flex justify-center">
+          <div className="mb-6 flex justify-center">
             <div className="flex h-20 w-20 rotate-6 items-center justify-center rounded-3xl bg-gradient-to-br from-blue-400 via-blue-600 to-indigo-700 shadow-2xl shadow-blue-900/40 ring-1 ring-white/20">
               <svg className="h-9 w-9 -rotate-6 text-white drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -62,13 +62,22 @@ export default async function SignInPage({
             </div>
           </div>
 
-          <h1 className="mb-10 text-center text-4xl font-bold leading-tight tracking-tight">
+          <span className="mb-4 inline-flex items-center gap-2 self-center rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-medium text-white/60">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            AI-powered · live in under 2 minutes
+          </span>
+
+          <h1 className="text-center text-4xl font-bold leading-tight tracking-tight">
             Payment pages that
             <br />
             <span className="bg-gradient-to-r from-blue-300 via-sky-300 to-blue-400 bg-clip-text text-transparent">
               actually convert
             </span>
           </h1>
+
+          <p className="mx-auto mt-3 mb-8 max-w-xs text-center text-sm leading-relaxed text-white/45">
+            Just describe what you sell — we&apos;ll build a beautiful Razorpay checkout page for you.
+          </p>
 
           {/* Google — the working provider */}
           <form
@@ -79,7 +88,7 @@ export default async function SignInPage({
           >
             <button
               type="submit"
-              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-white px-5 py-4 text-base font-semibold text-slate-900 transition hover:bg-slate-100"
+              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-white px-5 py-4 text-base font-semibold text-slate-900 shadow-lg shadow-blue-950/30 transition hover:bg-slate-100 active:scale-[0.99]"
             >
               <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z" />
@@ -91,7 +100,32 @@ export default async function SignInPage({
             </button>
           </form>
 
-          <p className="mt-8 text-center text-xs leading-relaxed text-white/30">
+          {/* What you get */}
+          <ul className="mt-7 space-y-3">
+            {[
+              "Describe it in plain English — or just speak",
+              "Razorpay checkout, built in and ready to take payments",
+              "Edit copy, price, and design live — no code",
+            ].map((feature) => (
+              <li key={feature} className="flex items-start gap-3 text-sm text-white/65">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-blue-300 ring-1 ring-blue-400/20">
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+                {feature}
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-8 flex items-center justify-center gap-2 text-xs font-medium text-white/35">
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z" />
+            </svg>
+            Free to start · Secured by Razorpay
+          </div>
+
+          <p className="mt-6 text-center text-xs leading-relaxed text-white/30">
             By continuing, you agree to our{" "}
             <span className="text-white/50 underline underline-offset-2">Terms of Service</span> and{" "}
             <span className="text-white/50 underline underline-offset-2">Privacy Policy</span>.
