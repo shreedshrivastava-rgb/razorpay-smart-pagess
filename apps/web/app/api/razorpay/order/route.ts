@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPage } from "@/lib/store/pages";
-
-const orderRateLimit = new Map<string, { count: number; resetAt: number }>();
-function checkOrderRateLimit(ip: string): boolean {
-  const now = Date.now();
-  for (const [key, val] of orderRateLimit) { if (now > val.resetAt) orderRateLimit.delete(key); }
-  const entry = orderRateLimit.get(ip);
-  if (!entry || now > entry.resetAt) { orderRateLimit.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
-  if (entry.count >= 20) return false;
-  entry.count++;
-  return true;
-}
+import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  if (!checkOrderRateLimit(ip)) {
-    return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
+  const rateLimitResult = await checkRateLimit("order", ip, 20, 60_000);
+  if (!rateLimitResult.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment." },
+      { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
+    );
   }
 
   const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
@@ -38,8 +32,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "amount must be a positive integer (paise)" }, { status: 400 });
   }
 
-  // Server-side amount guard: if a page slug is provided and this is NOT a cart order,
-  // ensure the amount is not greater than the page's listed price.
   if (slug && !isCart) {
     try {
       const page = await getPage(slug);
@@ -51,7 +43,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Amount must be positive" }, { status: 400 });
         }
       }
-    } catch { /* non-fatal — still allow order if page lookup fails */ }
+    } catch { /* non-fatal */ }
   }
 
   const credentials = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
@@ -72,11 +64,10 @@ export async function POST(req: NextRequest) {
     try {
       const parsed = JSON.parse(rawErr) as { error?: { description?: string } };
       if (parsed.error?.description) userMessage = parsed.error.description;
-    } catch { /* raw text, not JSON */ }
+    } catch { /* raw text */ }
     return NextResponse.json({ error: userMessage }, { status: rzpRes.status });
   }
 
   const order = await rzpRes.json();
-  // Return only what the client needs — never expose key_secret
   return NextResponse.json({ orderId: order.id, amount: order.amount, currency: order.currency });
 }

@@ -2,23 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { getPage, getPageEditToken, updatePage, deletePage, isPageOwner } from "@/lib/store/pages";
 import { ownerId } from "@/auth";
+import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import type { PageSchema } from "@/lib/schema/page-schema";
-
-const deleteRateLimit = new Map<string, { count: number; resetAt: number }>();
-function checkDeleteRateLimit(ip: string): boolean {
-  const now = Date.now();
-  for (const [key, val] of deleteRateLimit) { if (now > val.resetAt) deleteRateLimit.delete(key); }
-  const entry = deleteRateLimit.get(ip);
-  if (!entry || now > entry.resetAt) { deleteRateLimit.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
-  if (entry.count >= 10) return false;
-  entry.count++;
-  return true;
-}
 
 function checkCsrf(req: NextRequest): boolean {
   const host = req.headers.get("host");
   if (!host) return false;
-  // Check Origin first; fall back to Referer for clients that omit Origin
   const source = req.headers.get("origin") ?? req.headers.get("referer");
   if (!source) return false;
   try {
@@ -33,8 +22,6 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-
-  // Page data here is for editing — only the owner may read it.
   const owner = await ownerId();
   if (!owner || !(await isPageOwner(id, owner))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -43,8 +30,6 @@ export async function GET(
   const page = await getPage(id);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
 
-  // The owner opening a page for editing may request its edit token so they can
-  // preview drafts via /p/<slug>?preview=<token>.
   let editToken: string | null = null;
   if (req.nextUrl.searchParams.get("withToken") === "1" && checkCsrf(req)) {
     editToken = await getPageEditToken(id);
@@ -88,8 +73,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  if (!checkDeleteRateLimit(ip)) {
-    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  const rateLimitResult = await checkRateLimit("delete", ip, 10, 60_000);
+  if (!rateLimitResult.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests." },
+      { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
+    );
   }
   const { id } = await params;
 
