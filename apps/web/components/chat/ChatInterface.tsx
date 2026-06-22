@@ -149,7 +149,7 @@ export function ChatInterface() {
       ? (new URLSearchParams(window.location.search).get("prompt") ?? "")
       : ""
   );
-  const { speak, stop: stopAudio } = useTTS();
+  const { stop: stopAudio } = useTTS();
   const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [context, setContext] = useState<ChatContext>({});
   const [input, setInput] = useState("");
@@ -582,7 +582,6 @@ export function ChatInterface() {
           if (editToken) localStorage.setItem(`edit_token_${slug}`, editToken);
         } catch { /* localStorage unavailable */ }
         addMessage({ role: "assistant", content: "Looking good! Preview is ready — hit **Publish** when you're happy to share it." });
-        void speak("Preview is ready. Make any changes you want, then hit Publish to share your page.");
       }
     } catch {
       setError("Couldn't generate the page. Please try again.");
@@ -616,7 +615,6 @@ export function ChatInterface() {
         } catch { /* ignore */ }
         const msg = "Done! Your page has been updated.";
         addMessage({ role: "assistant", content: msg });
-        void speak(msg);
       }
     } catch {
       setError("Couldn't update the page. Please try again.");
@@ -695,7 +693,6 @@ export function ChatInterface() {
 
       setContext(updatedCtx);
       addMessage({ role: "assistant", content: json.reply });
-      void speak(json.reply);
 
       const stillNeedsPhotos = updatedCtx.pageType === "collection"
         && (updatedCtx.collectionProducts?.length ?? 0) > 0
@@ -838,7 +835,6 @@ export function ChatInterface() {
       setMessages(newMessages);
       saveToHistory(finalSlug, context.brandName ?? "My Page", newMessages, context, previewVersion);
       void navigator.clipboard.writeText(liveUrl).catch(() => undefined);
-      void speak("Your page is live! The link has been copied.");
     } finally {
       setPublishLoading(false);
     }

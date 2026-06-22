@@ -187,7 +187,7 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500",
         "disabled:opacity-40 disabled:cursor-not-allowed",
         listening
-          ? "bg-red-500 text-white shadow-lg shadow-red-200 scale-110 animate-pulse"
+          ? "bg-red-500 text-white shadow-md shadow-red-200"
           : processing
           ? "bg-indigo-100 text-indigo-400"
           : "bg-gray-100 text-gray-500 hover:bg-indigo-100 hover:text-indigo-600",
