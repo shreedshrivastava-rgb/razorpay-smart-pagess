@@ -277,6 +277,13 @@ export function ChatInterface() {
   }, []);
 
   useEffect(() => {
+    // Don't persist the pristine initial state. On mount this effect fires with
+    // [GREETING]/null *before* the restore effect's setState commits — persisting
+    // here would clobber a saved session (and with React StrictMode's double
+    // effect-invoke, the second restore pass would then read empty storage).
+    // handleNewChat clears storage explicitly, so skipping pristine state is safe.
+    const isPristine = !generatedSlug && messages.length <= 1;
+    if (isPristine) return;
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ messages, context, generatedSlug, previewVersion }));
     } catch {
