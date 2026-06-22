@@ -295,7 +295,6 @@ export function ChatInterface() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, generating, pendingPhotoDataUrls]);
 
-  useEffect(() => { if (!restoredRef.current) void speak(GREETING.content); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-send an initial prompt handed off from the landing page (/chat?prompt=...)
   useEffect(() => {
