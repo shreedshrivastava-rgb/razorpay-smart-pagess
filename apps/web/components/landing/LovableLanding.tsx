@@ -399,6 +399,7 @@ function TemplateCard({ name, desc, from, to, emoji }: { name: string; desc: str
 
 function ProjectCard({ page }: { page: PageSchema }) {
   const pageUrl = `/p/${page.slug}`;
+  const isDraft = page.status === "draft";
   return (
     <Link href={`/chat/${encodeURIComponent(page.slug)}`} className="group block">
       {/* Scaled-down live preview of the actual page */}
@@ -417,8 +418,14 @@ function ProjectCard({ page }: { page: PageSchema }) {
           title={page.brand?.name}
         />
         <div className="absolute inset-0 group-hover:bg-black/5 transition-colors" />
-        <span className="absolute right-3 top-3 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-200 backdrop-blur">
-          Live
+        <span
+          className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-semibold backdrop-blur ${
+            isDraft
+              ? "bg-white/90 text-amber-600 ring-1 ring-amber-200"
+              : "bg-white/90 text-emerald-600 ring-1 ring-emerald-200"
+          }`}
+        >
+          {isDraft ? "Draft" : "Live"}
         </span>
       </div>
       <div className="flex items-center justify-between gap-2">

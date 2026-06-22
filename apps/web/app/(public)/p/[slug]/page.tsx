@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { getPage, getPageEditToken } from "@/lib/store/pages";
+import { getPage, getPageEditToken, isPageOwner } from "@/lib/store/pages";
+import { ownerId } from "@/auth";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -64,7 +65,14 @@ export default async function PublicPage({ params, searchParams }: Props) {
 
   const isDraft = page.status === "draft";
   const hasValidPreviewToken = preview && editToken && preview === editToken;
-  if (isDraft && !hasValidPreviewToken) notFound();
+  // Drafts are private. Grant access to anyone holding the share token, OR to the
+  // signed-in owner (so their own dashboard/card previews render without a token
+  // in the URL — the session cookie rides along with the same-origin iframe).
+  if (isDraft && !hasValidPreviewToken) {
+    const owner = await ownerId();
+    const isOwner = owner ? await isPageOwner(slug, owner) : false;
+    if (!isOwner) notFound();
+  }
 
   // Pages created before the token system have no stored token — they're unprotected
   // and the PATCH endpoint already allows editing them freely.

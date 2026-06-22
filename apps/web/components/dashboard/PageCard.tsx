@@ -8,6 +8,7 @@ import { useState } from "react";
 export function PageCard({ page }: { page: PageSchema }) {
   const pageUrl = `/p/${page.slug}`;
   const amount = formatCurrency(page.payment.amount, page.payment.currency);
+  const isDraft = page.status === "draft";
   const [copied, setCopied] = useState(false);
 
   function copyLink(e: React.MouseEvent) {
@@ -37,8 +38,8 @@ export function PageCard({ page }: { page: PageSchema }) {
         />
         {/* Click-through shield + hover overlay */}
         <div className="absolute inset-0 group-hover:bg-black/5 transition-colors" />
-        <span className="absolute top-2.5 right-2.5 text-xs font-semibold text-emerald-600 bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm">
-          Live
+        <span className={`absolute top-2.5 right-2.5 text-xs font-semibold bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm ${isDraft ? "text-amber-600" : "text-emerald-600"}`}>
+          {isDraft ? "Draft" : "Live"}
         </span>
       </Link>
 
