@@ -507,10 +507,11 @@ export function ChatInterface() {
       if (sessionIdRef.current !== mySession) return;
       if (json.data?.slug) {
         const nextVersion = previewVersion + 1;
+        const updatedToken = json.data.editToken ?? generatedEditToken;
         setPreviewReady(false);
         setPreviewVersion(nextVersion);
-        void pollUntilReady(slug, mySession);
-        // Keep the localStorage token in sync — /api/generate mints a new token on every call
+        if (json.data.editToken) setGeneratedEditToken(json.data.editToken);
+        void pollUntilReady(slug, mySession, updatedToken);
         try {
           if (json.data.editToken) localStorage.setItem(`edit_token_${slug}`, json.data.editToken);
         } catch { /* ignore */ }
