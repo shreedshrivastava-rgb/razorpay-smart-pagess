@@ -10,7 +10,7 @@ import { headers } from "next/headers";
 
 interface Props {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ preview?: string }>;
+  searchParams: Promise<{ preview?: string; edit?: string }>;
 }
 
 async function ensureDemoPage(slug: string) {
@@ -57,7 +57,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
 
 export default async function PublicPage({ params, searchParams }: Props) {
   const { slug } = await params;
-  const { preview } = await searchParams;
+  const { preview, edit } = await searchParams;
   await ensureDemoPage(slug);
   const [page, editToken] = await Promise.all([getPage(slug), getPageEditToken(slug)]);
 
@@ -79,12 +79,17 @@ export default async function PublicPage({ params, searchParams }: Props) {
   // and the PATCH endpoint already allows editing them freely.
   const isProtected = editToken !== null;
 
+  // The edit pencil appears only in the in-app editing context (the chat preview
+  // iframe loads with ?edit=1) AND only for the owner. A direct /p/<slug> visit —
+  // the public link shared with buyers — never shows it, even to the owner.
+  const canEdit = isOwner && edit === "1";
+
   return (
     <>
       {/* Warm up the connection to the AI image host so generated visuals appear faster */}
       <link rel="preconnect" href="https://image.pollinations.ai" />
       <link rel="dns-prefetch" href="https://image.pollinations.ai" />
-      <PageRenderer page={page} isProtected={isProtected} isDraft={isDraft} isOwner={isOwner} />
+      <PageRenderer page={page} isProtected={isProtected} isDraft={isDraft} isOwner={canEdit} />
     </>
   );
 }

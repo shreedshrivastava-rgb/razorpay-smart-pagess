@@ -69,22 +69,14 @@ function WithEditPencil({ page, isProtected, isDraft, isOwner, children }: { pag
 
 function EditPencilInner({ page, isProtected, isDraft, isOwner, children }: { page: PageSchema; isProtected: boolean; isDraft?: boolean; isOwner?: boolean; children: ReactNode }) {
   const { editMode, toggle, enable, fields, clearFields } = useEditMode();
-  // Default hidden. The pencil only appears for the page's owner — never for
-  // public buyers. Ownership is established by the server (isOwner, via session)
-  // or, as a same-browser fallback, by holding the page's edit token locally.
-  const [showEdit, setShowEdit] = useState(!!isOwner);
+  // The pencil only appears in the in-app editing context: the server passes
+  // isOwner=true only when the owner opens the page with ?edit=1 (the chat
+  // preview iframe). A direct /p/<slug> visit — the public/shared link — never
+  // shows it, for anyone.
+  const showEdit = isOwner;
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const router = useRouter();
-
-  useEffect(() => {
-    if (isOwner) { setShowEdit(true); return; }
-    try {
-      const token = localStorage.getItem(`edit_token_${page.slug}`);
-      const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
-      setShowEdit(!!(token || owned[page.slug]));
-    } catch { /* localStorage unavailable */ }
-  }, [page.slug, isOwner]);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {

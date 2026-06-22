@@ -1155,7 +1155,7 @@ export function ChatInterface() {
                 <iframe
                   ref={iframeRef}
                   key={`${generatedSlug}-${previewVersion}`}
-                  src={`/p/${generatedSlug}${generatedEditToken ? `?preview=${generatedEditToken}` : ""}`}
+                  src={`/p/${generatedSlug}?edit=1${generatedEditToken ? `&preview=${generatedEditToken}` : ""}`}
                   className="absolute inset-0 w-full h-full border-0"
                   title="Page preview"
                 />
