@@ -141,6 +141,14 @@ export function ChatInterface() {
     ? params.slug
     : Array.isArray(params.slug) ? params.slug[0] : null;
   const slugParam = routeSlug ?? searchParams.get("slug");
+  // Capture the ?prompt= once at first render. The prompt effect strips it from
+  // the URL, so re-reading later (e.g. on StrictMode's second effect pass) would
+  // wrongly look like "no prompt" and let session-restore clobber a new chat.
+  const [initialPrompt] = useState(() =>
+    typeof window !== "undefined"
+      ? (new URLSearchParams(window.location.search).get("prompt") ?? "")
+      : ""
+  );
   const { speak, stop: stopAudio } = useTTS();
   const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [context, setContext] = useState<ChatContext>({});
@@ -208,7 +216,7 @@ export function ChatInterface() {
   useEffect(() => {
     if (slugParam) return;
     // ?prompt= means the user is starting a new chat — don't restore a previous session
-    if (new URLSearchParams(window.location.search).get("prompt")) return;
+    if (initialPrompt) return;
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -359,14 +367,12 @@ export function ChatInterface() {
   // Auto-send an initial prompt handed off from the landing page (/chat?prompt=...)
   useEffect(() => {
     if (initialPromptSentRef.current) return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("slug")) return; // slug deep-links are handled separately
-    const initial = params.get("prompt");
-    if (initial && initial.trim()) {
+    if (slugParam) return; // slug deep-links are handled separately
+    if (initialPrompt && initialPrompt.trim()) {
       initialPromptSentRef.current = true;
       restoredRef.current = true; // prevent API auto-restore from overriding this fresh chat
       window.history.replaceState({}, "", window.location.pathname);
-      void sendMessage(initial.trim());
+      void sendMessage(initialPrompt.trim());
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
