@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { VoiceButton } from "./VoiceButton";
 import type { ChatContext } from "@/app/api/chat/route";
 import type { PageSchema, WizardInput } from "@/lib/schema/page-schema";
@@ -125,6 +126,8 @@ interface ChatSession {
 }
 
 export function ChatInterface() {
+  const searchParams = useSearchParams();
+  const slugParam = searchParams.get("slug");
   const { speak, stop: stopAudio } = useTTS();
   const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [context, setContext] = useState<ChatContext>({});
@@ -182,7 +185,7 @@ export function ChatInterface() {
 
   // Restore from sessionStorage; fall back to most recent history entry when opening a fresh tab
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("slug")) return;
+    if (slugParam) return;
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -202,24 +205,69 @@ export function ChatInterface() {
         }
         if (typeof parsed.previewVersion === "number") setPreviewVersion(parsed.previewVersion);
       } else {
-        // No current tab session — auto-restore the most recent entry from history
-        const histStr = localStorage.getItem(HISTORY_KEY);
-        if (histStr) {
-          const hist = JSON.parse(histStr) as ChatSession[];
-          const latest = hist[0];
-          if (latest) {
-            setMessages(latest.messages?.length ? latest.messages : [GREETING]);
-            setContext(latest.context ?? {});
-            setGeneratedSlug(latest.slug);
-            setPreviewVersion(latest.previewVersion ?? 0);
-            setPreviewReady(true);
-            setIsPublished(true);
-            try {
-              const token = localStorage.getItem(`edit_token_${latest.slug}`);
-              if (token) setGeneratedEditToken(token);
-            } catch { /* ignore */ }
-            restoredRef.current = true;
+        // No current tab session — try localStorage history first, then API
+        let restoredFromHistory = false;
+        try {
+          const histStr = localStorage.getItem(HISTORY_KEY);
+          if (histStr) {
+            const hist = JSON.parse(histStr) as ChatSession[];
+            const latest = hist[0];
+            if (latest) {
+              setMessages(latest.messages?.length ? latest.messages : [GREETING]);
+              setContext(latest.context ?? {});
+              setGeneratedSlug(latest.slug);
+              setPreviewVersion(latest.previewVersion ?? 0);
+              setPreviewReady(true);
+              setIsPublished(true);
+              try {
+                const token = localStorage.getItem(`edit_token_${latest.slug}`);
+                if (token) setGeneratedEditToken(token);
+              } catch { /* ignore */ }
+              restoredRef.current = true;
+              restoredFromHistory = true;
+            }
           }
+        } catch { /* ignore */ }
+
+        if (!restoredFromHistory) {
+          // No localStorage history — fetch the most recent page from the API
+          void (async () => {
+            try {
+              const listRes = await fetch("/api/pages", { cache: "no-store" });
+              if (!listRes.ok) return;
+              const listJson = await listRes.json() as { data?: PageSchema[] };
+              const recent = listJson.data?.[0];
+              if (!recent || restoredRef.current) return;
+
+              const pageRes = await fetch(`/api/pages/${encodeURIComponent(recent.slug)}?withToken=1`, { cache: "no-store" });
+              if (!pageRes.ok) return;
+              const pageJson = await pageRes.json() as { data?: PageSchema; editToken?: string | null };
+              const page = pageJson.data;
+              if (!page || restoredRef.current) return;
+
+              const token = pageJson.editToken ?? null;
+              try {
+                if (!token) {
+                  const stored = localStorage.getItem(`edit_token_${page.slug}`);
+                  if (stored) { setGeneratedEditToken(stored); }
+                } else {
+                  localStorage.setItem(`edit_token_${page.slug}`, token);
+                  setGeneratedEditToken(token);
+                }
+              } catch { /* ignore */ }
+
+              setContext(pageToContext(page));
+              setGeneratedSlug(page.slug);
+              setIsPublished(page.status !== "draft");
+              setPreviewVersion(0);
+              setPreviewReady(true);
+              setMessages([
+                { id: "greeting", role: "assistant", content: `Here's **${page.brand?.name ?? "your page"}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
+                { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: 0 },
+              ]);
+              restoredRef.current = true;
+            } catch { /* ignore */ }
+          })();
         }
       }
     } catch { /* unavailable */ }
@@ -265,15 +313,14 @@ export function ChatInterface() {
 
   // Open an existing page in the chat + preview interface (/chat?slug=...)
   useEffect(() => {
-    const slug = new URLSearchParams(window.location.search).get("slug");
-    if (!slug) return;
+    if (!slugParam) return;
     restoredRef.current = true; // suppress greeting TTS and prompt auto-send
     stopAudio();
     window.history.replaceState({}, "", window.location.pathname);
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/pages/${encodeURIComponent(slug)}?withToken=1`, { cache: "no-store" });
+        const res = await fetch(`/api/pages/${encodeURIComponent(slugParam)}?withToken=1`, { cache: "no-store" });
         if (!res.ok) throw new Error("not found");
         const json = await res.json() as { data?: PageSchema; editToken?: string | null };
         const page = json.data;
@@ -316,7 +363,7 @@ export function ChatInterface() {
       }
     })();
     return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [slugParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addMessage = useCallback((msg: Omit<Message, "id">) => {
     setMessages((prev) => [...prev, { ...msg, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` }]);

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { ChatInterface } from "@/components/chat/ChatInterface";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,9 @@ export const metadata = {
 export default function ChatPage() {
   return (
     <div className="h-screen overflow-hidden">
-      <ChatInterface />
+      <Suspense fallback={null}>
+        <ChatInterface />
+      </Suspense>
     </div>
   );
 }
