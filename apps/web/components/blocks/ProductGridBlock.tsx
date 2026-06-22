@@ -5,6 +5,7 @@ import type { ProductGridSection, Brand, ProductGridItem } from "@/lib/schema/pa
 import { formatCurrency, cn } from "@/lib/utils";
 import { useCart } from "@/components/cart/CartContext";
 import { useEditModeOptional } from "@/components/editor/EditModeContext";
+import { GeneratedProductBanner } from "./GeneratedProductBanner";
 
 interface ProductGridBlockProps {
   section: ProductGridSection;
@@ -126,12 +127,7 @@ function ProductCard({
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         ) : (
-          <div
-            className="w-full h-full flex items-center justify-center text-5xl"
-            style={{ background: `${brand.primaryColor}12` }}
-          >
-            🛍️
-          </div>
+          <GeneratedProductBanner brand={brand} name={displayName} pageType="product" />
         )}
 
         {/* Edit overlay — only visible to page creator in edit mode */}

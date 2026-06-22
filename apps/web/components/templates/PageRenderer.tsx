@@ -8,6 +8,8 @@ import { useRouter } from "next/navigation";
 import { CartProvider, useCart } from "@/components/cart/CartContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
+import { inferProductEmoji, darken } from "@/lib/product-visual";
+import { generatedImageUrl, heroImagePrompt } from "@/lib/image-gen";
 
 interface PageRendererProps {
   page: PageSchema;
@@ -1033,41 +1035,6 @@ function PayField({ id, label, required, type, name, autoComplete, spellCheck, i
 }
 
 // ─── Branded product card (no-image fallback) ─────────────────────
-function darken(hex: string, factor: number): string {
-  let h = hex.replace(/^#/, "");
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
-  const r = Math.max(0, Math.round(parseInt(h.slice(0, 2), 16) * factor));
-  const g = Math.max(0, Math.round(parseInt(h.slice(2, 4), 16) * factor));
-  const b = Math.max(0, Math.round(parseInt(h.slice(4, 6), 16) * factor));
-  return `#${[r, g, b].map((v) => Math.min(255, v).toString(16).padStart(2, "0")).join("")}`;
-}
-
-function inferProductEmoji(productName: string, pageType: string): string {
-  const n = productName.toLowerCase();
-  if (/cake|bake|bak|pastry|cookie|brownie|dessert|tiramisu/.test(n)) return "🎂";
-  if (/jam|preserve|chutney|pickle|spread|marmalade/.test(n)) return "🍓";
-  if (/coffee|tea|brew|chai/.test(n)) return "☕";
-  if (/candle|wax|aroma/.test(n)) return "🕯️";
-  if (/jewel|ring|necklace|bracelet|earring/.test(n)) return "💎";
-  if (/plant|flower|herb|garden/.test(n)) return "🌿";
-  if (/art|paint|sketch|print/.test(n)) return "🎨";
-  if (/bag|tote|clutch|purse/.test(n)) return "👜";
-  if (/cloth|shirt|dress|fabric|stitch|knit|sew/.test(n)) return "👗";
-  if (/soap|skincare|cream|lotion/.test(n)) return "✨";
-  if (/book|course|guide|class|lesson/.test(n)) return "📖";
-  if (/yoga|fitness|health|wellness/.test(n)) return "🧘";
-  if (/juice|drink|beverage|smoothie/.test(n)) return "🥤";
-  if (/wine|beer|spirit|whiskey/.test(n)) return "🍷";
-  if (/furniture|sofa|chair|table/.test(n)) return "🛋️";
-  if (/headphone|earphone|speaker|audio/.test(n)) return "🎧";
-  const fallbacks: Record<string, string> = {
-    product: "🛍️", service: "⚡", course: "📚",
-    workshop: "🎓", event: "🎉", consultation: "💡",
-    saas: "🚀", subscription: "🌟",
-  };
-  return fallbacks[pageType] ?? "✦";
-}
-
 function BrandedProductCard({ brand, payment, pageType }: { brand: Brand; payment: Payment; pageType: string }) {
   const primary = brand.primaryColor || "#6366f1";
   const deep = darken(primary, 0.22);
@@ -1398,25 +1365,37 @@ function CollectionHero({ brand, payment, page }: { brand: Brand; payment: Payme
   const { editMode, fields, setField } = useEditMode();
   const heroName = fields["brand.name"] ?? brand.name;
   const heroDesc = fields["payment.description"] ?? payment.description;
-  const bannerImage = page.productImageUrl;
+  const [heroImgFailed, setHeroImgFailed] = useState(false);
+  // Real image behind the banner: the creator's upload, or an AI-generated one
+  // (Pollinations) from the brand context when they haven't provided a photo.
+  const generatedHero = generatedImageUrl(heroImagePrompt(brand.name, payment.description), {
+    width: 1280, height: 640, seedKey: `hero:${brand.name}`,
+  });
+  const bannerImage = page.productImageUrl ?? (heroImgFailed ? null : generatedHero);
 
   return (
     <section
       className="relative py-16 md:py-24 text-center overflow-hidden"
       style={{
-        background: bannerImage
-          ? `linear-gradient(to bottom, ${brand.primaryColor}cc, ${brand.primaryColor}99)`
-          : `linear-gradient(135deg, ${brand.primaryColor} 0%, ${brand.secondaryColor ?? "#0f172a"} 100%)`,
+        background: `linear-gradient(135deg, ${brand.primaryColor} 0%, ${brand.secondaryColor ?? "#0f172a"} 100%)`,
       }}
     >
-      {/* Background image overlay */}
+      {/* Real image behind the banner */}
       {bannerImage && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={bannerImage}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-30"
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={() => setHeroImgFailed(true)}
+        />
+      )}
+      {/* Brand scrim over the photo so the white headline stays legible */}
+      {bannerImage && (
+        <div
+          className="absolute inset-0"
+          style={{ background: `linear-gradient(180deg, ${brand.primaryColor}73 0%, ${darken(brand.primaryColor, 0.45)}c2 100%)` }}
         />
       )}
       {/* Noise texture */}
