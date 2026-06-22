@@ -16,6 +16,9 @@ interface PageRendererProps {
   isPreview?: boolean;
   isProtected?: boolean;
   isDraft?: boolean;
+  // True only when the signed-in viewer owns this page (server-verified).
+  // Gates the edit pencil so public buyers never see it.
+  isOwner?: boolean;
 }
 
 function sanitizeHexColor(color: string | undefined, fallback: string): string {
@@ -54,31 +57,34 @@ async function commitPageEdits(page: PageSchema, fields: Record<string, string>)
 }
 
 // ─── Shared edit pencil — works for every page type ─────────────
-function WithEditPencil({ page, isProtected, isDraft, children }: { page: PageSchema; isProtected: boolean; isDraft?: boolean; children: ReactNode }) {
+function WithEditPencil({ page, isProtected, isDraft, isOwner, children }: { page: PageSchema; isProtected: boolean; isDraft?: boolean; isOwner?: boolean; children: ReactNode }) {
   return (
     <EditModeProvider>
-      <EditPencilInner page={page} isProtected={isProtected} isDraft={isDraft}>
+      <EditPencilInner page={page} isProtected={isProtected} isDraft={isDraft} isOwner={isOwner}>
         {children}
       </EditPencilInner>
     </EditModeProvider>
   );
 }
 
-function EditPencilInner({ page, isProtected, isDraft, children }: { page: PageSchema; isProtected: boolean; isDraft?: boolean; children: ReactNode }) {
+function EditPencilInner({ page, isProtected, isDraft, isOwner, children }: { page: PageSchema; isProtected: boolean; isDraft?: boolean; isOwner?: boolean; children: ReactNode }) {
   const { editMode, toggle, enable, fields, clearFields } = useEditMode();
-  const [showEdit, setShowEdit] = useState(!isProtected);
+  // Default hidden. The pencil only appears for the page's owner — never for
+  // public buyers. Ownership is established by the server (isOwner, via session)
+  // or, as a same-browser fallback, by holding the page's edit token locally.
+  const [showEdit, setShowEdit] = useState(!!isOwner);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const router = useRouter();
 
   useEffect(() => {
-    if (!isProtected) { setShowEdit(true); return; }
+    if (isOwner) { setShowEdit(true); return; }
     try {
       const token = localStorage.getItem(`edit_token_${page.slug}`);
       const owned = JSON.parse(localStorage.getItem("owned_pages") ?? "{}") as Record<string, boolean>;
       setShowEdit(!!(token || owned[page.slug]));
     } catch { /* localStorage unavailable */ }
-  }, [page.slug, isProtected]);
+  }, [page.slug, isOwner]);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
@@ -155,7 +161,7 @@ function PageShell({ page, className, style, children }: { page: PageSchema; cla
   );
 }
 
-export function PageRenderer({ page, isPreview = false, isProtected = false, isDraft = false }: PageRendererProps) {
+export function PageRenderer({ page, isPreview = false, isProtected = false, isDraft = false, isOwner = false }: PageRendererProps) {
   const { brand, sections, payment } = page;
 
   const primaryColor = sanitizeHexColor(brand.primaryColor, "#6366f1");
@@ -174,7 +180,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false, isD
   // ── Landing page: full persuasion funnel, payment card at bottom ──
   if (page.pageType === "landing") {
     return (
-      <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft}>
+      <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft} isOwner={isOwner}>
         <PageShell page={page} className={wrapper} style={brandStyle}>
           <CheckoutNav brand={brand} payment={payment} />
           <LandingHero page={page} brand={brand} payment={payment} />
@@ -210,7 +216,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false, isD
   // ── Collection page: multi-product grid with cart, always-on inline editing ──
   if (page.pageType === "collection") {
     return (
-      <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft}>
+      <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft} isOwner={isOwner}>
         <CartProvider>
           <CollectionPageInner page={page} wrapper={wrapper} brandStyle={brandStyle} brand={brand} sections={sections} payment={payment} />
         </CartProvider>
@@ -224,7 +230,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false, isD
   const belowSections = sections.filter((s) => belowFoldTypes.has(s.type));
 
   return (
-    <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft}>
+    <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft} isOwner={isOwner}>
       <PageShell page={page} className={wrapper} style={brandStyle}>
         <a href="#pay" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-white focus:text-gray-900 focus:rounded focus:shadow-lg focus:text-sm">
           Skip to payment

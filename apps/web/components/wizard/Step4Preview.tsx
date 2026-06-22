@@ -200,7 +200,7 @@ export function Step4Preview({ input, generatedPage, onGenerated, onBack }: Step
             style={{ minHeight: "600px" }}
           >
             <div className={cn(viewMode === "mobile" && "scale-[0.85] origin-top")}>
-              <PageRenderer page={displayPage} isPreview />
+              <PageRenderer page={displayPage} isPreview isOwner />
             </div>
           </div>
         ) : null}

@@ -65,14 +65,15 @@ export default async function PublicPage({ params, searchParams }: Props) {
 
   const isDraft = page.status === "draft";
   const hasValidPreviewToken = preview && editToken && preview === editToken;
-  // Drafts are private. Grant access to anyone holding the share token, OR to the
-  // signed-in owner (so their own dashboard/card previews render without a token
-  // in the URL — the session cookie rides along with the same-origin iframe).
-  if (isDraft && !hasValidPreviewToken) {
-    const owner = await ownerId();
-    const isOwner = owner ? await isPageOwner(slug, owner) : false;
-    if (!isOwner) notFound();
-  }
+
+  // Is the current viewer the signed-in owner of this page? Used to gate draft
+  // access AND whether the edit pencil shows (buyers must never see it).
+  const owner = await ownerId();
+  const isOwner = owner ? await isPageOwner(slug, owner) : false;
+
+  // Drafts are private. Grant access to anyone holding the share token, or to the
+  // signed-in owner (their own dashboard/card previews render without a token).
+  if (isDraft && !hasValidPreviewToken && !isOwner) notFound();
 
   // Pages created before the token system have no stored token — they're unprotected
   // and the PATCH endpoint already allows editing them freely.
@@ -83,7 +84,7 @@ export default async function PublicPage({ params, searchParams }: Props) {
       {/* Warm up the connection to the AI image host so generated visuals appear faster */}
       <link rel="preconnect" href="https://image.pollinations.ai" />
       <link rel="dns-prefetch" href="https://image.pollinations.ai" />
-      <PageRenderer page={page} isProtected={isProtected} isDraft={isDraft} />
+      <PageRenderer page={page} isProtected={isProtected} isDraft={isDraft} isOwner={isOwner} />
     </>
   );
 }
