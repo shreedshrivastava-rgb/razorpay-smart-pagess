@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { VoiceButton } from "./VoiceButton";
 import type { ChatContext } from "@/app/api/chat/route";
 import type { PageSchema, WizardInput } from "@/lib/schema/page-schema";
+import type { StoredChat } from "@/lib/store/pages";
 
 // Reconstruct the chat context from a stored page so the AI can keep editing it
 // faithfully (rather than regenerating from an empty context and losing fields).
@@ -56,6 +57,12 @@ interface Message {
   imageUrl?: string;
   previewSlug?: string;
   previewVersion?: number;
+}
+
+// Drop inline base64 image data (huge) before persisting a conversation to the
+// server — the photo is already baked into the generated page.
+function stripDataUrls(messages: Message[]): Message[] {
+  return messages.map((m) => (m.imageUrl?.startsWith("data:") ? { ...m, imageUrl: undefined } : m));
 }
 
 async function processImageFile(file: File): Promise<string> {
@@ -159,6 +166,7 @@ export function ChatInterface() {
   const restoredRef = useRef(false);
   const storageWarnedRef = useRef(false);
   const initialPromptSentRef = useRef(false);
+  const chatSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pageUrl = generatedSlug
     ? `${typeof window !== "undefined" ? window.location.origin : ""}/p/${generatedSlug}`
@@ -243,7 +251,7 @@ export function ChatInterface() {
 
               const pageRes = await fetch(`/api/pages/${encodeURIComponent(recent.slug)}?withToken=1`, { cache: "no-store" });
               if (!pageRes.ok) return;
-              const pageJson = await pageRes.json() as { data?: PageSchema; editToken?: string | null };
+              const pageJson = await pageRes.json() as { data?: PageSchema; editToken?: string | null; chat?: StoredChat | null };
               const page = pageJson.data;
               if (!page || restoredRef.current) return;
 
@@ -258,14 +266,17 @@ export function ChatInterface() {
                 }
               } catch { /* ignore */ }
 
-              setContext(pageToContext(page));
+              const serverChat = pageJson.chat ?? null;
+              const restoredVersion = serverChat?.previewVersion ?? 0;
+              const serverMessages = serverChat?.messages as Message[] | undefined;
+              setContext((serverChat?.context as ChatContext) ?? pageToContext(page));
               setGeneratedSlug(page.slug);
               setIsPublished(page.status !== "draft");
-              setPreviewVersion(0);
+              setPreviewVersion(restoredVersion);
               setPreviewReady(true);
-              setMessages([
+              setMessages(serverMessages?.length ? serverMessages : [
                 { id: "greeting", role: "assistant", content: `Here's **${page.brand?.name ?? "your page"}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
-                { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: 0 },
+                { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: restoredVersion },
               ]);
               restoredRef.current = true;
             } catch { /* ignore */ }
@@ -302,6 +313,29 @@ export function ChatInterface() {
     }
   }, [messages, context, generatedSlug, previewVersion]);
 
+  // Persist the conversation server-side (debounced) so it survives across tabs,
+  // browsers and devices. Owner-scoped via the page; keyed by slug.
+  useEffect(() => {
+    if (!generatedSlug) return;
+    if (messages.length <= 1) return; // nothing meaningful yet
+    const slug = generatedSlug;
+    const payload = JSON.stringify({
+      messages: stripDataUrls(messages),
+      context,
+      previewVersion,
+      brandName: context.brandName ?? "",
+    });
+    if (chatSaveTimerRef.current) clearTimeout(chatSaveTimerRef.current);
+    chatSaveTimerRef.current = setTimeout(() => {
+      void fetch(`/api/pages/${encodeURIComponent(slug)}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      }).catch(() => { /* best-effort; sessionStorage still has it */ });
+    }, 900);
+    return () => { if (chatSaveTimerRef.current) clearTimeout(chatSaveTimerRef.current); };
+  }, [messages, context, generatedSlug, previewVersion]);
+
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, generating, pendingPhotoDataUrls]);
 
 
@@ -330,15 +364,16 @@ export function ChatInterface() {
       try {
         const res = await fetch(`/api/pages/${encodeURIComponent(slugParam)}?withToken=1`, { cache: "no-store" });
         if (!res.ok) throw new Error("not found");
-        const json = await res.json() as { data?: PageSchema; editToken?: string | null };
+        const json = await res.json() as { data?: PageSchema; editToken?: string | null; chat?: StoredChat | null };
         const page = json.data;
         if (!page || cancelled) return;
-        const ctx = pageToContext(page);
-        setContext(ctx);
+        const serverChat = json.chat ?? null;
+        const restoredVersion = serverChat?.previewVersion ?? 0;
+        setContext((serverChat?.context as ChatContext) ?? pageToContext(page));
         setGeneratedSlug(page.slug);
-        setIsPublished(true);
+        setIsPublished(page.status !== "draft");
         setPreviewReady(true);
-        setPreviewVersion(0);
+        setPreviewVersion(restoredVersion);
         // Prefer the server-provided token (works for drafts in any browser); fall back to localStorage.
         let token = json.editToken ?? null;
         try {
@@ -347,25 +382,22 @@ export function ChatInterface() {
         } catch { /* localStorage unavailable */ }
         if (token) setGeneratedEditToken(token);
         const brandName = page.brand?.name ?? "your page";
-        // Restore past chat conversation for this page if it exists in localStorage history
-        try {
-          const histStr = localStorage.getItem(HISTORY_KEY);
-          const hist = histStr ? (JSON.parse(histStr) as ChatSession[]) : [];
-          const past = hist.find((s) => s.slug === page.slug);
-          if (past?.messages?.length) {
-            setMessages(past.messages);
-          } else {
-            setMessages([
-              { id: "greeting", role: "assistant", content: `Here's **${brandName}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
-              { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: 0 },
-            ]);
-          }
-        } catch {
-          setMessages([
-            { id: "greeting", role: "assistant", content: `Here's **${brandName}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
-            { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: 0 },
-          ]);
+        // Restore the saved conversation: server first (cross-device), then the
+        // local history cache, then a fresh greeting + preview.
+        const serverMessages = serverChat?.messages as Message[] | undefined;
+        let restored: Message[] | null = serverMessages?.length ? serverMessages : null;
+        if (!restored) {
+          try {
+            const histStr = localStorage.getItem(HISTORY_KEY);
+            const hist = histStr ? (JSON.parse(histStr) as ChatSession[]) : [];
+            const past = hist.find((s) => s.slug === page.slug);
+            if (past?.messages?.length) restored = past.messages;
+          } catch { /* ignore */ }
         }
+        setMessages(restored ?? [
+          { id: "greeting", role: "assistant", content: `Here's **${brandName}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
+          { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: restoredVersion },
+        ]);
       } catch {
         if (!cancelled) setError("Couldn't load that page. It may have been deleted.");
       }

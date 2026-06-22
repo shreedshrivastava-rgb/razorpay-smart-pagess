@@ -14,8 +14,12 @@ interface StoredPage {
 }
 
 function rowToPage(row: StoredPage): PageSchema {
+  // _chat is the owner's private conversation persisted inside page_data — never
+  // expose it on the public page object. Read it via getPageChatDb instead.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { _chat, ...data } = row.page_data as PageSchema & { _chat?: unknown };
   return {
-    ...row.page_data,
+    ...data,
     id: row.id,
     slug: row.slug,
     status: row.status as PageSchema["status"],
@@ -222,6 +226,28 @@ export async function publishPageDb(
   `;
 
   return published;
+}
+
+// Persist the owner's chat conversation inside page_data under `_chat`. Done as
+// a read-modify-write so it works whether page_data is json or jsonb.
+export async function saveChatDb(slug: string, chat: unknown): Promise<void> {
+  const db = getDb();
+  if (!db) throw new Error("Database not configured");
+  const rows = await db<{ page_data: Record<string, unknown> }[]>`
+    SELECT page_data FROM pages WHERE slug = ${slug}
+  `;
+  if (rows.length === 0) return;
+  const pageData = { ...rows[0].page_data, _chat: chat };
+  await db`UPDATE pages SET page_data = ${db.json(pageData as never)} WHERE slug = ${slug}`;
+}
+
+export async function getPageChatDb(slug: string): Promise<unknown | null> {
+  const db = getDb();
+  if (!db) throw new Error("Database not configured");
+  const rows = await db<{ page_data: Record<string, unknown> }[]>`
+    SELECT page_data FROM pages WHERE slug = ${slug}
+  `;
+  return rows[0]?.page_data?._chat ?? null;
 }
 
 export { isDbAvailable };

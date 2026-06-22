@@ -13,13 +13,26 @@ import {
   updatePageDb,
   ensureUniqueSlugDb,
   publishPageDb,
+  saveChatDb,
+  getPageChatDb,
   isDbAvailable,
 } from "@/lib/db/pages-store";
 
 // ─── Storage backend selection ──────────────────────────────────────────
 // Priority: Database → Vercel Blob → File fallback
 
-type StoredPage = PageSchema & { _editToken?: string; _ownerId?: string };
+// The owner's chat conversation, persisted server-side alongside the page so it
+// survives across tabs, browsers and devices. Stored loosely (the client owns
+// the message shape); never sent to public page viewers.
+export interface StoredChat {
+  messages: unknown[];
+  context: unknown;
+  previewVersion: number;
+  brandName?: string;
+  updatedAt: string;
+}
+
+type StoredPage = PageSchema & { _editToken?: string; _ownerId?: string; _chat?: StoredChat };
 
 function ownsPage(stored: StoredPage, ownerId: string): boolean {
   if (stored._ownerId) return stored._ownerId === ownerId;
@@ -79,7 +92,7 @@ async function blobGetRaw(slug: string): Promise<StoredPage | null> {
 
 function stripToken(stored: StoredPage): PageSchema {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { _editToken, ...page } = stored;
+  const { _editToken, _chat, ...page } = stored;
   return page;
 }
 
@@ -363,5 +376,38 @@ export async function updatePage(
     pages[slug] = { ...pages[slug], ...updates, updatedAt: new Date().toISOString() };
     await writePages(pages);
     return stripToken(pages[slug]);
+  });
+}
+
+// ─── Per-page chat conversation (owner-scoped) ───────────────────────────
+
+export async function getPageChat(slug: string): Promise<StoredChat | null> {
+  noStore();
+  if (isDbAvailable()) return (await getPageChatDb(slug)) as StoredChat | null;
+  if (blobAvailable()) {
+    const raw = await blobGetRaw(slug);
+    return raw?._chat ?? null;
+  }
+  const pages = await readPages();
+  return pages[slug]?._chat ?? null;
+}
+
+export async function saveChat(slug: string, chat: StoredChat): Promise<void> {
+  if (isDbAvailable()) {
+    await saveChatDb(slug, chat);
+    return;
+  }
+  if (blobAvailable()) {
+    const raw = await blobGetRaw(slug);
+    if (!raw) return;
+    raw._chat = chat;
+    await blobSaveRaw(raw, true);
+    return;
+  }
+  return withLock(async () => {
+    const pages = await readPages();
+    if (!pages[slug]) return;
+    pages[slug]._chat = chat;
+    await writePages(pages);
   });
 }

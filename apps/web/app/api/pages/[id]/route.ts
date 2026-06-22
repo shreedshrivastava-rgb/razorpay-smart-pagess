@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { getPage, getPageEditToken, updatePage, deletePage, isPageOwner } from "@/lib/store/pages";
+import { getPage, getPageEditToken, updatePage, deletePage, isPageOwner, getPageChat } from "@/lib/store/pages";
 import { ownerId } from "@/auth";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import type { PageSchema } from "@/lib/schema/page-schema";
@@ -35,7 +35,11 @@ export async function GET(
     editToken = await getPageEditToken(id);
   }
 
-  return NextResponse.json({ success: true, data: page as PageSchema, editToken });
+  // The owner reopening a page gets back its saved conversation so the chat
+  // restores anywhere they sign in — not just the browser that created it.
+  const chat = await getPageChat(id);
+
+  return NextResponse.json({ success: true, data: page as PageSchema, editToken, chat });
 }
 
 export async function PATCH(
