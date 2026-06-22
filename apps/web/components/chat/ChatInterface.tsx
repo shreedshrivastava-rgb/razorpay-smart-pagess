@@ -529,6 +529,7 @@ export function ChatInterface() {
   async function sendMessage(text: string) {
     const trimmed = text.trim();
     if ((!trimmed && pendingPhotoDataUrls.length === 0) || inflightRef.current || generating) return;
+    restoredRef.current = true; // prevent API auto-restore from overriding an active conversation
     inflightRef.current = true;
     const mySession = sessionIdRef.current;
     setError("");
