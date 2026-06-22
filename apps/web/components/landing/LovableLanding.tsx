@@ -398,20 +398,25 @@ function TemplateCard({ name, desc, from, to, emoji }: { name: string; desc: str
 }
 
 function ProjectCard({ page }: { page: PageSchema }) {
-  const primary = page.brand?.primaryColor ?? "#3b82f6";
-  const secondary = page.brand?.secondaryColor ?? "#1e3a8a";
+  const pageUrl = `/p/${page.slug}`;
   return (
     <Link href={`/chat?slug=${encodeURIComponent(page.slug)}`} className="group block">
-      <div
-        className="relative mb-3 flex h-44 items-center justify-center overflow-hidden rounded-2xl ring-1 ring-slate-200 transition group-hover:ring-blue-300"
-        style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})` }}
-      >
-        {page.brand?.logo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={page.brand.logo} alt="" className="h-12 w-12 rounded-xl bg-white object-contain p-1.5" />
-        ) : (
-          <span className="text-3xl font-bold text-white">{page.brand?.name?.[0] ?? "P"}</span>
-        )}
+      {/* Scaled-down live preview of the actual page */}
+      <div className="relative mb-3 h-44 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200 transition group-hover:ring-blue-300">
+        <iframe
+          src={pageUrl}
+          className="absolute top-0 left-0 border-0 pointer-events-none select-none"
+          style={{
+            width: 1280,
+            height: 960,
+            transform: "scale(0.28)",
+            transformOrigin: "top left",
+          }}
+          loading="lazy"
+          tabIndex={-1}
+          title={page.brand?.name}
+        />
+        <div className="absolute inset-0 group-hover:bg-black/5 transition-colors" />
         <span className="absolute right-3 top-3 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-200 backdrop-blur">
           Live
         </span>

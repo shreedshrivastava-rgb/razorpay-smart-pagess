@@ -34,7 +34,6 @@ export function PageCard({ page }: { page: PageSchema }) {
           loading="lazy"
           tabIndex={-1}
           title={page.brand.name}
-          sandbox="allow-scripts allow-same-origin"
         />
         {/* Click-through shield + hover overlay */}
         <div className="absolute inset-0 group-hover:bg-black/5 transition-colors" />

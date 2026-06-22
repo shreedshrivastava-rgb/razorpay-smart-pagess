@@ -180,7 +180,7 @@ export function ChatInterface() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Restore from sessionStorage (skipped when deep-linking to a specific page via ?slug=)
+  // Restore from sessionStorage; fall back to most recent history entry when opening a fresh tab
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("slug")) return;
     try {
@@ -201,6 +201,26 @@ export function ChatInterface() {
           } catch { /* ignore */ }
         }
         if (typeof parsed.previewVersion === "number") setPreviewVersion(parsed.previewVersion);
+      } else {
+        // No current tab session — auto-restore the most recent entry from history
+        const histStr = localStorage.getItem(HISTORY_KEY);
+        if (histStr) {
+          const hist = JSON.parse(histStr) as ChatSession[];
+          const latest = hist[0];
+          if (latest) {
+            setMessages(latest.messages?.length ? latest.messages : [GREETING]);
+            setContext(latest.context ?? {});
+            setGeneratedSlug(latest.slug);
+            setPreviewVersion(latest.previewVersion ?? 0);
+            setPreviewReady(true);
+            setIsPublished(true);
+            try {
+              const token = localStorage.getItem(`edit_token_${latest.slug}`);
+              if (token) setGeneratedEditToken(token);
+            } catch { /* ignore */ }
+            restoredRef.current = true;
+          }
+        }
       }
     } catch { /* unavailable */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,10 +292,25 @@ export function ChatInterface() {
         } catch { /* localStorage unavailable */ }
         if (token) setGeneratedEditToken(token);
         const brandName = page.brand?.name ?? "your page";
-        setMessages([
-          { id: "greeting", role: "assistant", content: `Here's **${brandName}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
-          { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: 0 },
-        ]);
+        // Restore past chat conversation for this page if it exists in localStorage history
+        try {
+          const histStr = localStorage.getItem(HISTORY_KEY);
+          const hist = histStr ? (JSON.parse(histStr) as ChatSession[]) : [];
+          const past = hist.find((s) => s.slug === page.slug);
+          if (past?.messages?.length) {
+            setMessages(past.messages);
+          } else {
+            setMessages([
+              { id: "greeting", role: "assistant", content: `Here's **${brandName}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
+              { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: 0 },
+            ]);
+          }
+        } catch {
+          setMessages([
+            { id: "greeting", role: "assistant", content: `Here's **${brandName}**. Tell me what you'd like to change — copy, price, colours, products — and I'll update it live.` },
+            { id: `prev-${Date.now()}`, role: "preview", content: "", previewSlug: page.slug, previewVersion: 0 },
+          ]);
+        }
       } catch {
         if (!cancelled) setError("Couldn't load that page. It may have been deleted.");
       }
