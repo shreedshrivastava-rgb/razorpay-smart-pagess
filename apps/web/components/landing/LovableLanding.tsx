@@ -55,6 +55,7 @@ const ICONS = {
   chevDown: "M6 9l6 6 6-6",
   sidebar: "M4 5h16v14H4V5zm5 0v14",
   receipt: "M9 14h6m-6-4h6m-7 8l-2 2V6a2 2 0 012-2h8a2 2 0 012 2v14l-2-2-2 2-2-2-2 2-2-2z",
+  card: "M3 10h18M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z",
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -290,6 +291,7 @@ function Sidebar({
         <NavItem icon={ICONS.grid} label="All projects" href="/dashboard" />
         <NavItem icon={ICONS.star} label="Starred" href="/dashboard" />
         <NavItem icon={ICONS.receipt} label="Order records" href="/orders" />
+        <NavItem icon={ICONS.card} label="Payment settings" href="/settings" />
       </nav>
 
       {recents.length > 0 && (

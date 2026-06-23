@@ -1,8 +1,34 @@
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { getPage, getPageOwnerId } from "@/lib/store/pages";
+import { resolveMerchantAuth } from "@/lib/store/merchants";
 import { saveOrder } from "@/lib/store/orders";
+
+// HMAC check against a specific key secret (BYO / platform).
+function signatureMatches(orderId: string, paymentId: string, signature: string, secret: string): boolean {
+  const expected = createHmac("sha256", secret).update(`${orderId}|${paymentId}`).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  } catch {
+    return false;
+  }
+}
+
+// OAuth merchants don't expose their key secret to the platform — confirm the
+// payment by reading it back from Razorpay with the merchant's access token.
+async function paymentIsCaptured(orderId: string, paymentId: string, authHeader: string): Promise<boolean> {
+  try {
+    const res = await fetch(`https://api.razorpay.com/v1/payments/${paymentId}`, {
+      headers: { Authorization: authHeader },
+    });
+    if (!res.ok) return false;
+    const p = await res.json() as { status?: string; order_id?: string };
+    return (p.status === "captured" || p.status === "authorized") && p.order_id === orderId;
+  } catch {
+    return false;
+  }
+}
 
 interface VerifyBody {
   orderId?: string; paymentId?: string; signature?: string;
@@ -20,11 +46,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const secret = process.env.RAZORPAY_KEY_SECRET;
-  if (!secret) {
-    return NextResponse.json({ error: "Not configured" }, { status: 503 });
-  }
-
   let body: VerifyBody;
   try {
     body = await req.json();
@@ -37,12 +58,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "orderId, paymentId, and signature are required" }, { status: 400 });
   }
 
-  const expected = createHmac("sha256", secret)
-    .update(`${orderId}|${paymentId}`)
-    .digest("hex");
+  // Verify against the same account that created the order: the page owner's
+  // connected merchant (BYO secret → HMAC; OAuth → payments API), else platform env.
+  const merchant = body.slug ? await resolveMerchantAuth((await getPageOwnerId(body.slug)) ?? "") : null;
 
-  if (expected !== signature) {
-    console.warn("Razorpay signature mismatch", { orderId, paymentId });
+  let verified = false;
+  if (merchant?.method === "keys" && merchant.keySecret) {
+    verified = signatureMatches(orderId, paymentId, signature, merchant.keySecret);
+  } else if (merchant?.method === "oauth") {
+    verified = await paymentIsCaptured(orderId, paymentId, merchant.authHeader);
+  } else {
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) return NextResponse.json({ error: "Not configured" }, { status: 503 });
+    verified = signatureMatches(orderId, paymentId, signature, secret);
+  }
+
+  if (!verified) {
+    console.warn("Razorpay payment verification failed", { orderId, paymentId });
     return NextResponse.json({ verified: false }, { status: 400 });
   }
 

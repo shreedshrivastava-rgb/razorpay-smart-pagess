@@ -672,7 +672,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
         const { error: errMsg } = await orderRes.json() as { error?: string };
         throw new Error(errMsg || `Order creation failed (${orderRes.status})`);
       }
-      const { orderId } = await orderRes.json() as { orderId: string };
+      const { orderId, keyId: orderKeyId } = await orderRes.json() as { orderId: string; keyId?: string };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const w = window as any;
@@ -689,7 +689,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       new (w.Razorpay as any)({
-        key: RZP_KEY || payment.razorpayKeyId,
+        key: orderKeyId || RZP_KEY || payment.razorpayKeyId,
         order_id: orderId,
         amount: effectiveAmount,
         currency: payment.currency,

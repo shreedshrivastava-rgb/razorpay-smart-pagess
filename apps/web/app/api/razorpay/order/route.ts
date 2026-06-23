@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPage } from "@/lib/store/pages";
+import { getPage, getPageOwnerId } from "@/lib/store/pages";
+import { resolveMerchantAuth } from "@/lib/store/merchants";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 
 export async function POST(req: NextRequest) {
@@ -10,13 +11,6 @@ export async function POST(req: NextRequest) {
       { error: "Too many requests. Please wait a moment." },
       { status: 429, headers: getRateLimitHeaders(rateLimitResult) }
     );
-  }
-
-  const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
-
-  if (!keyId || !keySecret) {
-    return NextResponse.json({ error: "Razorpay keys not configured" }, { status: 503 });
   }
 
   let body: { amount: number; currency?: string; receipt?: string; slug?: string; isCart?: boolean };
@@ -30,6 +24,24 @@ export async function POST(req: NextRequest) {
 
   if (!amount || amount <= 0) {
     return NextResponse.json({ error: "amount must be a positive integer (paise)" }, { status: 400 });
+  }
+
+  // Route the order to the page owner's own Razorpay account when they've
+  // connected one; otherwise fall back to the platform's env keys.
+  let authHeader: string;
+  let checkoutKeyId: string;
+  const merchant = slug ? await resolveMerchantAuth((await getPageOwnerId(slug)) ?? "") : null;
+  if (merchant) {
+    authHeader = merchant.authHeader;
+    checkoutKeyId = merchant.keyId;
+  } else {
+    const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (!keyId || !keySecret) {
+      return NextResponse.json({ error: "Razorpay keys not configured" }, { status: 503 });
+    }
+    authHeader = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`;
+    checkoutKeyId = keyId;
   }
 
   if (slug && !isCart) {
@@ -46,13 +58,11 @@ export async function POST(req: NextRequest) {
     } catch { /* non-fatal */ }
   }
 
-  const credentials = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
-
   const rzpRes = await fetch("https://api.razorpay.com/v1/orders", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Basic ${credentials}`,
+      Authorization: authHeader,
     },
     body: JSON.stringify({ amount, currency, receipt }),
   });
@@ -69,5 +79,6 @@ export async function POST(req: NextRequest) {
   }
 
   const order = await rzpRes.json();
-  return NextResponse.json({ orderId: order.id, amount: order.amount, currency: order.currency });
+  // keyId tells the client which account's checkout to open (merchant's or platform's).
+  return NextResponse.json({ orderId: order.id, amount: order.amount, currency: order.currency, keyId: checkoutKeyId });
 }

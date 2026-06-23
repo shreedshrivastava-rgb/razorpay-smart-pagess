@@ -246,13 +246,13 @@ async function handleCheckout({
     const orderRes = await fetch("/api/razorpay/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: total, currency: items[0]?.currency ?? "INR", isCart: true }),
+      body: JSON.stringify({ amount: total, currency: items[0]?.currency ?? "INR", isCart: true, slug }),
     });
     if (!orderRes.ok) {
       const { error: e } = await orderRes.json() as { error?: string };
       throw new Error(e ?? "Order creation failed");
     }
-    const { orderId } = await orderRes.json() as { orderId: string };
+    const { orderId, keyId: orderKeyId } = await orderRes.json() as { orderId: string; keyId?: string };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
@@ -269,7 +269,7 @@ async function handleCheckout({
 
     interface RazorpayResponse { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }
     new (w.Razorpay as RazorpayCtor)({
-      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || razorpayKeyId,
+      key: orderKeyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || razorpayKeyId,
       order_id: orderId,
       amount: total,
       currency: items[0]?.currency ?? "INR",
