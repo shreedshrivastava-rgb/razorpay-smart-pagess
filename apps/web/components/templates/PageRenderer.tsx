@@ -28,6 +28,18 @@ function sanitizeHexColor(color: string | undefined, fallback: string): string {
 }
 
 // ─── Shared save utility ─────────────────────────────────────────
+// Prices/amounts are stored in paise; the inline editors show/accept rupees.
+function paiseToRupeesInput(paiseStr: string): string {
+  if (paiseStr === "") return "";
+  const n = Number(paiseStr);
+  return Number.isNaN(n) ? "" : String(Math.round(n) / 100);
+}
+function rupeesInputToPaise(rupeesStr: string): string {
+  if (rupeesStr === "") return "";
+  const paise = Math.round(parseFloat(rupeesStr) * 100);
+  return String(Number.isNaN(paise) ? 0 : paise);
+}
+
 async function commitPageEdits(page: PageSchema, fields: Record<string, string>): Promise<void> {
   const updated = JSON.parse(JSON.stringify(page)) as PageSchema;
   for (const [path, value] of Object.entries(fields)) {
@@ -298,7 +310,11 @@ function CollectionPageInner({
         ))}
       </div>
       <CheckoutFooter brand={brand} />
-      <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
+      <CartDrawer
+        brand={brand}
+        razorpayKeyId={payment.razorpayKeyId}
+        isDemo={IS_DEMO_MODE || !payment.razorpayKeyId || payment.razorpayKeyId === "rzp_test_placeholder" || payment.razorpayMode === "test"}
+      />
     </PageShell>
   );
 }
@@ -484,8 +500,8 @@ function CheckoutHero({
                   </span>
                   <input
                     type="number"
-                    value={fields["payment.amount"] ?? String(payment.amount)}
-                    onChange={(e) => setField("payment.amount", e.target.value)}
+                    value={paiseToRupeesInput(fields["payment.amount"] ?? String(payment.amount))}
+                    onChange={(e) => setField("payment.amount", rupeesInputToPaise(e.target.value))}
                     min="0"
                     step="any"
                     placeholder="0"
@@ -1252,8 +1268,8 @@ function LandingHero({ page, brand, payment }: { page: PageSchema; brand: Brand;
             </span>
             <input
               type="number"
-              value={fields["payment.amount"] ?? String(payment.amount)}
-              onChange={(e) => setField("payment.amount", e.target.value)}
+              value={paiseToRupeesInput(fields["payment.amount"] ?? String(payment.amount))}
+              onChange={(e) => setField("payment.amount", rupeesInputToPaise(e.target.value))}
               min="0"
               step="any"
               placeholder="0"

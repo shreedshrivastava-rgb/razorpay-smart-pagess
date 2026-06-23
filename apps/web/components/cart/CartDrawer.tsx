@@ -12,7 +12,7 @@ interface RazorpayCtor {
 
 const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
 
-export function CartDrawer({ brand, razorpayKeyId }: { brand: Brand; razorpayKeyId: string }) {
+export function CartDrawer({ brand, razorpayKeyId, isDemo = false }: { brand: Brand; razorpayKeyId: string; isDemo?: boolean }) {
   const { items, remove, updateQty, clear, total, count, isOpen, close } = useCart();
   const [stage, setStage] = useState<"cart" | "checkout">("cart");
   const [name, setName] = useState("");
@@ -166,7 +166,7 @@ export function CartDrawer({ brand, razorpayKeyId }: { brand: Brand; razorpayKey
 
           <div className="px-5 py-4 border-t border-gray-100">
             <button
-              onClick={() => handleCheckout({ name, email, phone, items, total, brand, razorpayKeyId, setLoading, setError, onSuccess: () => { clear(); setSuccess(true); } })}
+              onClick={() => handleCheckout({ name, email, phone, items, total, brand, razorpayKeyId, isDemo, setLoading, setError, onSuccess: () => { clear(); setSuccess(true); } })}
               disabled={loading}
               className="w-full py-3.5 rounded-2xl text-white font-bold text-base transition-all hover:opacity-90 active:scale-95 disabled:opacity-60"
               style={{ backgroundColor: brand.primaryColor }}
@@ -220,11 +220,11 @@ function CheckoutField({
 }
 
 async function handleCheckout({
-  name, email, phone, items, total, brand, razorpayKeyId, setLoading, setError, onSuccess,
+  name, email, phone, items, total, brand, razorpayKeyId, isDemo, setLoading, setError, onSuccess,
 }: {
   name: string; email: string; phone: string;
   items: CartItem[]; total: number;
-  brand: Brand; razorpayKeyId: string;
+  brand: Brand; razorpayKeyId: string; isDemo: boolean;
   setLoading: (v: boolean) => void;
   setError: (v: string) => void;
   onSuccess: () => void;
@@ -234,7 +234,9 @@ async function handleCheckout({
   setError("");
   setLoading(true);
 
-  const isDemoKey = !razorpayKeyId || razorpayKeyId === "rzp_test_placeholder";
+  // isDemo carries the page-level guard (test mode, or a live key without the
+  // explicit NEXT_PUBLIC_RAZORPAY_LIVE=true flag) — simulate instead of charging.
+  const isDemoKey = isDemo || !razorpayKeyId || razorpayKeyId === "rzp_test_placeholder";
 
   if (isDemoKey || total === 0) {
     await new Promise((r) => setTimeout(r, 1200));

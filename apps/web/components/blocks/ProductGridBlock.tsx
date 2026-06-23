@@ -79,7 +79,9 @@ function ProductCard({
   const displayDesc = field("description", item.description);
   const displayImageUrl = field("imageUrl", item.imageUrl);
   const rawPrice = field("price", String(item.price));
-  const displayPrice = isNaN(Number(rawPrice)) ? item.price : Number(rawPrice);
+  const displayPrice = isNaN(Number(rawPrice)) ? item.price : Number(rawPrice); // paise
+  // The editor shows/accepts rupees; prices are stored in paise.
+  const priceRupees = rawPrice === "" ? "" : String(Math.round(displayPrice) / 100);
 
   const formatted = displayPrice > 0
     ? item.maxPrice && item.maxPrice > displayPrice
@@ -225,8 +227,13 @@ function ProductCard({
                 <span className="text-xl font-extrabold" style={{ color: brand.primaryColor }}>₹</span>
                 <input
                   type="number"
-                  value={rawPrice ?? ""}
-                  onChange={(e) => setField(`${basePath}.price`, e.target.value)}
+                  value={priceRupees}
+                  onChange={(e) => {
+                    const r = e.target.value;
+                    if (r === "") { setField(`${basePath}.price`, ""); return; }
+                    const paise = Math.round(parseFloat(r) * 100);
+                    setField(`${basePath}.price`, String(Number.isNaN(paise) ? 0 : paise));
+                  }}
                   className="text-2xl font-extrabold tabular-nums w-28 bg-transparent border-b border-dashed border-gray-300 focus:border-gray-600 outline-none"
                   style={{ color: brand.primaryColor }}
                   min={0}
