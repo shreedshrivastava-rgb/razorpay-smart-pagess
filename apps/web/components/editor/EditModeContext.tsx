@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useState } from "react";
 import type { ReactNode } from "react";
 
 interface EditModeContextValue {
+  // True only for the page owner in the editing context — gates all edit affordances.
+  canEdit: boolean;
   editMode: boolean;
   toggle: () => void;
   enable: () => void;
@@ -20,7 +22,7 @@ interface EditModeContextValue {
 
 const EditModeContext = createContext<EditModeContextValue | null>(null);
 
-export function EditModeProvider({ children }: { children: ReactNode }) {
+export function EditModeProvider({ children, canEdit = false }: { children: ReactNode; canEdit?: boolean }) {
   const [editMode, setEditMode] = useState(false);
   const [activeField, setActiveField] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -37,7 +39,7 @@ export function EditModeProvider({ children }: { children: ReactNode }) {
   const clearFields = useCallback(() => setFields({}), []);
 
   return (
-    <EditModeContext.Provider value={{ editMode, toggle, enable, activeField, setActiveField, fields, setField, clearFields, saving, setSaving, saveError, setSaveError }}>
+    <EditModeContext.Provider value={{ canEdit, editMode, toggle, enable, activeField, setActiveField, fields, setField, clearFields, saving, setSaving, saveError, setSaveError }}>
       {children}
     </EditModeContext.Provider>
   );

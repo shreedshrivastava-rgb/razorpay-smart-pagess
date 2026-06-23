@@ -1,4 +1,5 @@
 import type { Section, Brand } from "@/lib/schema/page-schema";
+import { EditableSection } from "@/components/editor/EditableSection";
 import { HeroBlock } from "./HeroBlock";
 import { FeaturesBlock } from "./FeaturesBlock";
 import { TestimonialsBlock } from "./TestimonialsBlock";
@@ -18,31 +19,38 @@ interface SectionRendererProps {
   sectionIndex?: number;
 }
 
+const SECTION_LABELS: Record<string, string> = {
+  hero: "hero", features: "features", benefits: "benefits", testimonials: "reviews",
+  faq: "FAQ", cta: "call to action", trust: "trust badges", stats: "stats",
+  agenda: "agenda", speakers: "speakers", "product-grid": "products",
+};
+
 export function SectionRenderer({ section, brand, onCtaClick, razorpayKeyId, sectionIndex }: SectionRendererProps) {
   if (!section.visible) return null;
 
+  let inner: React.ReactNode;
   switch (section.type) {
     case "hero":
-      return <HeroBlock section={section} brand={brand} onCtaClick={onCtaClick} sectionIndex={sectionIndex} />;
+      inner = <HeroBlock section={section} brand={brand} onCtaClick={onCtaClick} sectionIndex={sectionIndex} />; break;
     case "features":
     case "benefits":
-      return <FeaturesBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
+      inner = <FeaturesBlock section={section} brand={brand} sectionIndex={sectionIndex} />; break;
     case "testimonials":
-      return <TestimonialsBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
+      inner = <TestimonialsBlock section={section} brand={brand} sectionIndex={sectionIndex} />; break;
     case "faq":
-      return <FAQBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
+      inner = <FAQBlock section={section} brand={brand} sectionIndex={sectionIndex} />; break;
     case "cta":
-      return <CTABlock section={section} brand={brand} onCtaClick={onCtaClick} sectionIndex={sectionIndex} />;
+      inner = <CTABlock section={section} brand={brand} onCtaClick={onCtaClick} sectionIndex={sectionIndex} />; break;
     case "trust":
-      return <TrustBadgesBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
+      inner = <TrustBadgesBlock section={section} brand={brand} sectionIndex={sectionIndex} />; break;
     case "stats":
-      return <StatsBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
+      inner = <StatsBlock section={section} brand={brand} sectionIndex={sectionIndex} />; break;
     case "agenda":
-      return <AgendaBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
+      inner = <AgendaBlock section={section} brand={brand} sectionIndex={sectionIndex} />; break;
     case "speakers":
-      return <SpeakersBlock section={section} brand={brand} sectionIndex={sectionIndex} />;
+      inner = <SpeakersBlock section={section} brand={brand} sectionIndex={sectionIndex} />; break;
     case "product-grid":
-      return (
+      inner = (
         <ProductGridBlock
           section={section}
           brand={brand}
@@ -50,7 +58,10 @@ export function SectionRenderer({ section, brand, onCtaClick, razorpayKeyId, sec
           sectionIndex={sectionIndex}
         />
       );
+      break;
     default:
       return null;
   }
+
+  return <EditableSection label={SECTION_LABELS[section.type]}>{inner}</EditableSection>;
 }

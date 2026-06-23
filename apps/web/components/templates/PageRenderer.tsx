@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { CartProvider, useCart } from "@/components/cart/CartContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
+import { EditableSection } from "@/components/editor/EditableSection";
 import { inferProductEmoji, darken } from "@/lib/product-visual";
 import { generatedImageUrl, heroImagePrompt, productImagePrompt } from "@/lib/image-gen";
 
@@ -59,7 +60,7 @@ async function commitPageEdits(page: PageSchema, fields: Record<string, string>)
 // ─── Shared edit pencil — works for every page type ─────────────
 function WithEditPencil({ page, isProtected, isDraft, isOwner, children }: { page: PageSchema; isProtected: boolean; isDraft?: boolean; isOwner?: boolean; children: ReactNode }) {
   return (
-    <EditModeProvider>
+    <EditModeProvider canEdit={!!isOwner}>
       <EditPencilInner page={page} isProtected={isProtected} isDraft={isDraft} isOwner={isOwner}>
         {children}
       </EditPencilInner>
@@ -193,7 +194,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false, isD
       <WithEditPencil page={page} isProtected={isProtected} isDraft={isDraft} isOwner={isOwner}>
         <PageShell page={page} className={wrapper} style={brandStyle}>
           <CheckoutNav brand={brand} payment={payment} />
-          <LandingHero page={page} brand={brand} payment={payment} />
+          <EditableSection label="hero"><LandingHero page={page} brand={brand} payment={payment} /></EditableSection>
           <div className="bg-white">
             {sections.map((section, idx) => (
               <SectionRenderer
@@ -246,7 +247,7 @@ export function PageRenderer({ page, isPreview = false, isProtected = false, isD
           Skip to payment
         </a>
         <CheckoutNav brand={brand} payment={payment} />
-        <CheckoutHero page={page} brand={brand} payment={payment} aboveSections={aboveSections} />
+        <EditableSection label="hero"><CheckoutHero page={page} brand={brand} payment={payment} aboveSections={aboveSections} /></EditableSection>
 
         {belowSections.length > 0 && (
           <div className="bg-white">
@@ -283,7 +284,7 @@ function CollectionPageInner({
   return (
     <PageShell page={page} className={wrapper} style={brandStyle}>
       <CollectionNav brand={brand} />
-      <CollectionHero brand={brand} payment={payment} page={page} />
+      <EditableSection label="hero"><CollectionHero brand={brand} payment={payment} page={page} /></EditableSection>
       <div id="products" className="bg-white">
         {sections.map((section, idx) => (
           <SectionRenderer
