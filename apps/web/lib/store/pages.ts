@@ -93,7 +93,7 @@ async function blobGetRaw(slug: string): Promise<StoredPage | null> {
 
 function stripToken(stored: StoredPage): PageSchema {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { _editToken, _chat, ...page } = stored;
+  const { _editToken, _ownerId, _chat, ...page } = stored;
   return page;
 }
 
