@@ -310,11 +310,7 @@ function CollectionPageInner({
         ))}
       </div>
       <CheckoutFooter brand={brand} />
-      <CartDrawer
-        brand={brand}
-        razorpayKeyId={payment.razorpayKeyId}
-        isDemo={IS_DEMO_MODE || !payment.razorpayKeyId || payment.razorpayKeyId === "rzp_test_placeholder" || payment.razorpayMode === "test"}
-      />
+      <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
     </PageShell>
   );
 }
@@ -594,11 +590,8 @@ function CheckoutHero({
 }
 
 // ─── Payment card ──────────────────────────────────────────────────
-const IS_DEMO_MODE =
-  !process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
-  process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID === "rzp_test_placeholder" ||
-  (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.startsWith("rzp_live") &&
-    process.env.NEXT_PUBLIC_RAZORPAY_LIVE !== "true");
+// The real Razorpay key, used for every checkout. No demo/test simulation.
+const RZP_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
 
 function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) {
   const { payment } = page;
@@ -615,11 +608,6 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
   const [error, setError] = useState("");
 
   const isFree = !payment.amount || payment.amount <= 0;
-  const isDemoKey =
-    IS_DEMO_MODE ||
-    !payment.razorpayKeyId ||
-    payment.razorpayKeyId === "rzp_test_placeholder" ||
-    payment.razorpayMode === "test";
 
   const discount = couponApplied && payment.couponConfig
     ? Math.round(payment.amount * payment.couponConfig.discountPercent / 100)
@@ -662,7 +650,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
     setLoading(true);
     setError("");
 
-    if (isFree || isDemoKey) {
+    if (isFree) {
       await new Promise((r) => setTimeout(r, 1200));
       setLoading(false);
       setSuccess(true);
@@ -701,7 +689,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       new (w.Razorpay as any)({
-        key: payment.razorpayKeyId,
+        key: RZP_KEY || payment.razorpayKeyId,
         order_id: orderId,
         amount: effectiveAmount,
         currency: payment.currency,
@@ -814,13 +802,9 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
             )}
           </div>
         )}
-        {!isFree && (isDemoKey ? (
-          <p className="text-xs text-amber-600 mt-1 flex items-center gap-1" role="status" aria-live="polite">
-            <span aria-hidden="true">🧪</span> Demo mode — no real charge will be made
-          </p>
-        ) : (
+        {!isFree && (
           <p className="text-xs text-gray-400 mt-1">Secured payments with UPI, Cards &amp; Wallets</p>
-        ))}
+        )}
       </div>
 
       {/* ── Section 3: Form fields ── */}
@@ -955,7 +939,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span>{isDemoKey ? "Simulating…" : "Opening checkout…"}</span>
+                  <span>Opening checkout…</span>
                 </>
               ) : isFree ? (
                 "Register for Free"
