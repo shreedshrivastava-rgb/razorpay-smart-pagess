@@ -12,12 +12,15 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
     "font-src 'self' https://fonts.gstatic.com",
     "connect-src 'self' https://*.razorpay.com https://api.razorpay.com https://r.jina.ai",
     "frame-src 'self' https://*.razorpay.com",
+    // Allow our own app to embed its pages (dashboard/chat previews iframe /p/*);
+    // still blocks external sites from framing (clickjacking protection).
+    "frame-ancestors 'self'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
   ].join("; ");
 
-  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Frame-Options", "SAMEORIGIN");
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set(
