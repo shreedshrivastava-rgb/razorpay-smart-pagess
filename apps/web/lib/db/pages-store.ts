@@ -241,6 +241,15 @@ export async function saveChatDb(slug: string, chat: unknown): Promise<void> {
   await db`UPDATE pages SET page_data = ${db.json(pageData as never)} WHERE slug = ${slug}`;
 }
 
+export async function getPageOwnerIdDb(slug: string): Promise<string | null> {
+  const db = getDb();
+  if (!db) throw new Error("Database not configured");
+  const rows = await db<Pick<StoredPage, "owner_email">[]>`
+    SELECT owner_email FROM pages WHERE slug = ${slug}
+  `;
+  return rows[0]?.owner_email ?? getOwnerEmail();
+}
+
 export async function getPageChatDb(slug: string): Promise<unknown | null> {
   const db = getDb();
   if (!db) throw new Error("Database not configured");

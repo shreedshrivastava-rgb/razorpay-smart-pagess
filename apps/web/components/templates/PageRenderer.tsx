@@ -310,7 +310,7 @@ function CollectionPageInner({
         ))}
       </div>
       <CheckoutFooter brand={brand} />
-      <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} />
+      <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} slug={page.slug} />
     </PageShell>
   );
 }
@@ -708,6 +708,12 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
                 orderId: response.razorpay_order_id,
                 paymentId: response.razorpay_payment_id,
                 signature: response.razorpay_signature,
+                slug: page.slug,
+                amount: effectiveAmount,
+                currency: payment.currency,
+                customerName: name,
+                customerEmail: email,
+                customerPhone: phone,
               }),
             });
             if (!verifyRes.ok) throw new Error("Signature mismatch");

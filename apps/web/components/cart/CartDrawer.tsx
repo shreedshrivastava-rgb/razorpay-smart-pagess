@@ -12,7 +12,7 @@ interface RazorpayCtor {
 
 const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
 
-export function CartDrawer({ brand, razorpayKeyId }: { brand: Brand; razorpayKeyId: string }) {
+export function CartDrawer({ brand, razorpayKeyId, slug }: { brand: Brand; razorpayKeyId: string; slug: string }) {
   const { items, remove, updateQty, clear, total, count, isOpen, close } = useCart();
   const [stage, setStage] = useState<"cart" | "checkout">("cart");
   const [name, setName] = useState("");
@@ -166,7 +166,7 @@ export function CartDrawer({ brand, razorpayKeyId }: { brand: Brand; razorpayKey
 
           <div className="px-5 py-4 border-t border-gray-100">
             <button
-              onClick={() => handleCheckout({ name, email, phone, items, total, brand, razorpayKeyId, setLoading, setError, onSuccess: () => { clear(); setSuccess(true); } })}
+              onClick={() => handleCheckout({ name, email, phone, items, total, brand, razorpayKeyId, slug, setLoading, setError, onSuccess: () => { clear(); setSuccess(true); } })}
               disabled={loading}
               className="w-full py-3.5 rounded-2xl text-white font-bold text-base transition-all hover:opacity-90 active:scale-95 disabled:opacity-60"
               style={{ backgroundColor: brand.primaryColor }}
@@ -220,11 +220,11 @@ function CheckoutField({
 }
 
 async function handleCheckout({
-  name, email, phone, items, total, brand, razorpayKeyId, setLoading, setError, onSuccess,
+  name, email, phone, items, total, brand, razorpayKeyId, slug, setLoading, setError, onSuccess,
 }: {
   name: string; email: string; phone: string;
   items: CartItem[]; total: number;
-  brand: Brand; razorpayKeyId: string;
+  brand: Brand; razorpayKeyId: string; slug: string;
   setLoading: (v: boolean) => void;
   setError: (v: string) => void;
   onSuccess: () => void;
@@ -286,6 +286,12 @@ async function handleCheckout({
             orderId: response.razorpay_order_id,
             paymentId: response.razorpay_payment_id,
             signature: response.razorpay_signature,
+            slug,
+            amount: total,
+            currency: items[0]?.currency ?? "INR",
+            customerName: name,
+            customerEmail: email,
+            customerPhone: phone,
           }),
         });
         if (!verifyRes.ok) { setLoading(false); setError("Payment verification failed. Contact support."); return; }

@@ -15,6 +15,7 @@ import {
   publishPageDb,
   saveChatDb,
   getPageChatDb,
+  getPageOwnerIdDb,
   isDbAvailable,
 } from "@/lib/db/pages-store";
 
@@ -264,6 +265,19 @@ export async function getPageEditToken(slug: string): Promise<string | null> {
   }
   const pages = await readPages();
   return pages[slug]?._editToken ?? null;
+}
+
+// The owner (email) a page belongs to — used to attribute orders to the seller.
+export async function getPageOwnerId(slug: string): Promise<string | null> {
+  noStore();
+  if (isDbAvailable()) return getPageOwnerIdDb(slug);
+  const primary = process.env.PRIMARY_OWNER_EMAIL ?? null;
+  if (blobAvailable()) {
+    const raw = await blobGetRaw(slug);
+    return raw?._ownerId ?? primary;
+  }
+  const pages = await readPages();
+  return pages[slug]?._ownerId ?? primary;
 }
 
 export async function isPageOwner(slug: string, ownerId: string): Promise<boolean> {

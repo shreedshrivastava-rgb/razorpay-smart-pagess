@@ -54,6 +54,7 @@ const ICONS = {
   arrowRight: "M5 12h14M13 6l6 6-6 6",
   chevDown: "M6 9l6 6 6-6",
   sidebar: "M4 5h16v14H4V5zm5 0v14",
+  receipt: "M9 14h6m-6-4h6m-7 8l-2 2V6a2 2 0 012-2h8a2 2 0 012 2v14l-2-2-2 2-2-2-2 2-2-2z",
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -288,6 +289,7 @@ function Sidebar({
       <nav className="space-y-0.5">
         <NavItem icon={ICONS.grid} label="All projects" href="/dashboard" />
         <NavItem icon={ICONS.star} label="Starred" href="/dashboard" />
+        <NavItem icon={ICONS.receipt} label="Order records" href="/orders" />
       </nav>
 
       {recents.length > 0 && (
