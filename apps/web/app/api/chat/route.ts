@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withRetry } from "@/lib/retry";
 import { logger } from "@/lib/logger";
+import { ownerId } from "@/auth";
+import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -291,6 +293,18 @@ function isValidChatResponse(obj: unknown): obj is ChatResponse {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Defense-in-depth: middleware already gates auth, but guard here too and
+  // rate-limit per owner so a single account can't burn AI credits unbounded.
+  const owner = await ownerId();
+  if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const rl = await checkRateLimit("chat", owner, 30, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      { status: 429, headers: getRateLimitHeaders(rl) }
+    );
+  }
+
   let body: { messages: ChatMessage[]; context: ChatContext; generatedSlug?: string; pendingPhotoUrl?: string };
   try {
     body = await req.json() as { messages: ChatMessage[]; context: ChatContext; generatedSlug?: string; pendingPhotoUrl?: string };

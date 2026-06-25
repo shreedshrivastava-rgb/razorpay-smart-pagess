@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
+import { ownerId } from "@/auth";
+import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 
 // Azure OpenAI Whisper STT proxy — keeps API key server-side
 export async function POST(req: NextRequest) {
+  const owner = await ownerId();
+  if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const rl = await checkRateLimit("stt", owner, 30, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment." },
+      { status: 429, headers: getRateLimitHeaders(rl) }
+    );
+  }
+
   const key = process.env.WHISPER_API_KEY;
   const endpoint = process.env.WHISPER_ENDPOINT;
   if (!key || !endpoint) return NextResponse.json({ error: "STT not configured" }, { status: 503 });

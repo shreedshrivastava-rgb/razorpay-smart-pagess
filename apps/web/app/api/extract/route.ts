@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidUrl } from "@/lib/utils";
 import { extractBrand, extractProduct } from "@/lib/extract/jina";
 import { logger } from "@/lib/logger";
+import { ownerId } from "@/auth";
+import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
+
+// Auth + per-owner rate limit shared by both extract handlers — they proxy a
+// billable upstream (Jina), so cap usage per account.
+async function guard(): Promise<NextResponse | string> {
+  const owner = await ownerId();
+  if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const rl = await checkRateLimit("extract", owner, 20, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment." },
+      { status: 429, headers: getRateLimitHeaders(rl) }
+    );
+  }
+  return owner;
+}
 
 function normalizeAndValidate(raw: string): { url: string } | { error: string; status: number } {
   const normalized = raw.startsWith("http") ? raw : `https://${raw}`;
@@ -29,6 +46,8 @@ function normalizeAndValidate(raw: string): { url: string } | { error: string; s
 
 // GET /api/extract?url=... — used by Step3Details for product extraction
 export async function GET(req: NextRequest) {
+  const g = await guard();
+  if (g instanceof NextResponse) return g;
   const raw = req.nextUrl.searchParams.get("url") ?? "";
   if (!raw) return NextResponse.json({ error: "url param required" }, { status: 400 });
 
@@ -46,6 +65,8 @@ export async function GET(req: NextRequest) {
 
 // POST /api/extract — used by Step1Import for brand/website extraction
 export async function POST(req: NextRequest) {
+  const g = await guard();
+  if (g instanceof NextResponse) return g;
   let raw: string;
   try {
     const body = await req.json() as { url?: string };

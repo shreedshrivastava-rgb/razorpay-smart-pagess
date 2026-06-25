@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
+import { ownerId } from "@/auth";
+import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 
 // ElevenLabs TTS proxy — keeps API key server-side, returns audio stream
 // Set ELEVENLABS_API_KEY and optionally ELEVENLABS_VOICE_ID in .env.local
@@ -8,6 +10,16 @@ const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // Rachel — warm, natural
 const MAX_TEXT_LENGTH = 500;
 
 export async function POST(req: NextRequest) {
+  const owner = await ownerId();
+  if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const rl = await checkRateLimit("tts", owner, 60, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment." },
+      { status: 429, headers: getRateLimitHeaders(rl) }
+    );
+  }
+
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) {
     return NextResponse.json({ error: "TTS not configured" }, { status: 503 });
