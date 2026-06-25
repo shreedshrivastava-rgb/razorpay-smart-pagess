@@ -54,15 +54,19 @@ interface Message {
   id: string;
   role: "user" | "assistant" | "preview";
   content: string;
-  imageUrl?: string;
+  imageUrl?: string;       // first uploaded image (back-compat)
+  imageUrls?: string[];    // all images uploaded with this message
   previewSlug?: string;
   previewVersion?: number;
 }
 
 // Drop inline base64 image data (huge) before persisting a conversation to the
-// server — the photo is already baked into the generated page.
+// server — the photos are already baked into the generated page.
 function stripDataUrls(messages: Message[]): Message[] {
-  return messages.map((m) => (m.imageUrl?.startsWith("data:") ? { ...m, imageUrl: undefined } : m));
+  return messages.map((m) => {
+    if (!m.imageUrl?.startsWith("data:") && !m.imageUrls?.some((u) => u.startsWith("data:"))) return m;
+    return { ...m, imageUrl: undefined, imageUrls: undefined };
+  });
 }
 
 async function processImageFile(file: File): Promise<string> {
@@ -642,6 +646,7 @@ export function ChatInterface() {
       role: "user",
       content: trimmed,
       imageUrl: photosForThisMessage[0] ?? undefined,
+      imageUrls: photosForThisMessage.length ? photosForThisMessage : undefined,
     };
     const snapshot = [...messages, userMsg];
     setMessages(snapshot);
@@ -671,20 +676,53 @@ export function ChatInterface() {
 
       let updatedCtx = json.context;
 
+      // The AI's structured output doesn't echo back image fields, so merge any
+      // images we already had (matched by product name) to avoid losing them.
+      if (json.context.collectionProducts && context.collectionProducts) {
+        const prior = context.collectionProducts;
+        updatedCtx = {
+          ...json.context,
+          collectionProducts: json.context.collectionProducts.map((p) => {
+            if (p.imageUrl) return p;
+            const m = prior.find((q) => q.name.toLowerCase() === p.name.toLowerCase());
+            return m?.imageUrl ? { ...p, imageUrl: m.imageUrl } : p;
+          }),
+        };
+      }
+      if (!updatedCtx.productImageUrl && context.productImageUrl) {
+        updatedCtx = { ...updatedCtx, productImageUrl: context.productImageUrl, productImages: context.productImages };
+      }
+
       if (photosForThisMessage.length > 0) {
-        if (json.photoMapping) {
+        const products = updatedCtx.collectionProducts ?? context.collectionProducts ?? [];
+        const isCollectionCtx = updatedCtx.pageType === "collection" && products.length > 0;
+
+        if (isCollectionCtx && json.photoMapping && photosForThisMessage.length === 1) {
+          // "this one is for <product>" — assign the single photo to that product.
           const targetName = json.photoMapping.toLowerCase();
-          const updatedProducts = (json.context.collectionProducts ?? context.collectionProducts ?? []).map((p) => {
+          const updatedProducts = products.map((p) => {
             const pLower = p.name.toLowerCase();
-            if (pLower === targetName || targetName.includes(pLower) || pLower.includes(targetName)) {
-              return { ...p, imageUrl: photosForThisMessage[0] };
-            }
-            return p;
+            return (pLower === targetName || targetName.includes(pLower) || pLower.includes(targetName))
+              ? { ...p, imageUrl: photosForThisMessage[0] }
+              : p;
           });
-          updatedCtx = { ...json.context, collectionProducts: updatedProducts };
-        } else if (json.context.pageType !== "collection") {
+          updatedCtx = { ...updatedCtx, collectionProducts: updatedProducts };
+        } else if (isCollectionCtx) {
+          // Multiple photos (e.g. "these are my products") — distribute in order:
+          // fill products without an image first, then overwrite from the start.
+          const updatedProducts = products.map((p) => ({ ...p }));
+          let pi = 0;
+          for (let i = 0; i < updatedProducts.length && pi < photosForThisMessage.length; i++) {
+            if (!updatedProducts[i].imageUrl) updatedProducts[i].imageUrl = photosForThisMessage[pi++];
+          }
+          for (let i = 0; i < updatedProducts.length && pi < photosForThisMessage.length; i++) {
+            updatedProducts[i].imageUrl = photosForThisMessage[pi++];
+          }
+          updatedCtx = { ...updatedCtx, collectionProducts: updatedProducts };
+        } else {
+          // Single-product page — attach all photos as the product gallery.
           updatedCtx = {
-            ...json.context,
+            ...updatedCtx,
             productImageUrl: photosForThisMessage[0],
             productImages: photosForThisMessage,
           };
@@ -1271,10 +1309,23 @@ function ChatBubble({ message }: { message: Message }) {
     return (
       <div className="flex justify-end">
         <div className="max-w-[82%] flex flex-col gap-1.5 items-end">
-          {message.imageUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={message.imageUrl} alt="uploaded" className="max-w-[160px] rounded-2xl rounded-tr-sm object-cover shadow-sm border border-white/10" />
-          )}
+          {(() => {
+            const imgs = message.imageUrls?.length ? message.imageUrls : (message.imageUrl ? [message.imageUrl] : []);
+            if (!imgs.length) return null;
+            return (
+              <div className="flex flex-wrap gap-1.5 justify-end">
+                {imgs.map((src, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={i}
+                    src={src}
+                    alt={`uploaded ${i + 1}`}
+                    className={`rounded-2xl object-cover shadow-sm border border-white/10 ${imgs.length === 1 ? "max-w-[160px]" : "w-[88px] h-[88px]"}`}
+                  />
+                ))}
+              </div>
+            );
+          })()}
           {message.content && (
             <div className="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-3.5 py-2.5 text-sm leading-relaxed">
               {message.content}
