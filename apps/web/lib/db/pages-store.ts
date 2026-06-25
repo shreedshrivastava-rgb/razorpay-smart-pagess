@@ -140,6 +140,12 @@ export async function updatePageDb(
   const db = getDb();
   if (!db) throw new Error("Database not configured");
 
+  // Read the RAW page_data (keeps internal fields like _chat that rowToPage
+  // strips) so merging updates doesn't silently wipe the saved conversation.
+  const rows = await db<{ page_data: Record<string, unknown> }[]>`
+    SELECT page_data FROM pages WHERE slug = ${slug}
+  `;
+  if (rows.length === 0) return null;
   const existing = await getPageDb(slug);
   if (!existing) return null;
 
@@ -147,13 +153,15 @@ export async function updatePageDb(
     throw new Error("Conflict: page was modified by another request. Refresh and try again.");
   }
 
-  const merged: PageSchema = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+  const updatedAt = new Date().toISOString();
+  const mergedRaw = { ...rows[0].page_data, ...updates, updatedAt };
+  const merged: PageSchema = { ...existing, ...updates, updatedAt };
 
   await db`
     UPDATE pages SET
-      page_data = ${db.json(merged)},
+      page_data = ${db.json(mergedRaw as never)},
       status = ${merged.status},
-      updated_at = ${new Date(merged.updatedAt)}
+      updated_at = ${new Date(updatedAt)}
     WHERE slug = ${slug}
   `;
 
@@ -189,11 +197,20 @@ export async function publishPageDb(
   const db = getDb();
   if (!db) throw new Error("Database not configured");
 
+  // Read the raw row so we keep owner_email, edit_token, and page_data._chat
+  // through publish — nulling them stranded the page (owner lost access) and
+  // wiped the conversation on the DB backend.
+  const rows = await db<{ page_data: Record<string, unknown>; owner_email: string | null; edit_token: string | null }[]>`
+    SELECT page_data, owner_email, edit_token FROM pages WHERE slug = ${slug}
+  `;
+  if (rows.length === 0) throw new Error("Page not found");
+  const { page_data: rawPageData, owner_email, edit_token } = rows[0];
+
+  const storedToken = edit_token;
+  if (storedToken && storedToken !== editToken) throw new Error("Forbidden");
+
   const existing = await getPageDb(slug);
   if (!existing) throw new Error("Page not found");
-
-  const storedToken = await getPageEditTokenDb(slug);
-  if (storedToken && storedToken !== editToken) throw new Error("Forbidden");
 
   const published: PageSchema = {
     ...existing,
@@ -201,6 +218,7 @@ export async function publishPageDb(
     status: "published",
     updatedAt: new Date().toISOString(),
   };
+  const publishedRaw = { ...rawPageData, slug: newSlug, status: "published", updatedAt: published.updatedAt };
 
   if (newSlug !== slug) {
     await db`DELETE FROM pages WHERE slug = ${slug}`;
@@ -212,17 +230,18 @@ export async function publishPageDb(
       ${published.id},
       ${published.slug},
       ${published.status},
-      ${null},
-      ${null},
-      ${db.json(published)},
+      ${owner_email},
+      ${edit_token},
+      ${db.json(publishedRaw as never)},
       ${new Date(published.createdAt)},
       ${new Date(published.updatedAt)}
     )
     ON CONFLICT (slug) DO UPDATE SET
       status = EXCLUDED.status,
+      owner_email = COALESCE(pages.owner_email, EXCLUDED.owner_email),
+      edit_token = EXCLUDED.edit_token,
       page_data = EXCLUDED.page_data,
-      updated_at = EXCLUDED.updated_at,
-      edit_token = NULL
+      updated_at = EXCLUDED.updated_at
   `;
 
   return published;

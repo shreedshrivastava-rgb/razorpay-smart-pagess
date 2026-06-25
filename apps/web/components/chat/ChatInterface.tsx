@@ -468,17 +468,37 @@ export function ChatInterface() {
   function buildWizardInput(ctx: ChatContext): WizardInput {
     const isCollection = ctx.pageType === "collection";
     return {
-      brand: { name: ctx.brandName ?? "My Brand", primaryColor: ctx.primaryColor ?? "#6366F1", secondaryColor: ctx.secondaryColor ?? "#0f172a" },
+      brand: {
+        name: ctx.brandName ?? "My Brand",
+        primaryColor: ctx.primaryColor ?? "#6366F1",
+        secondaryColor: ctx.secondaryColor ?? "#0f172a",
+        // Forward brand extras the AI gathers (were silently dropped before).
+        ...(ctx.deliveryInfo ? { deliveryInfo: ctx.deliveryInfo } : {}),
+        ...(ctx.socialLinks ? { socialLinks: ctx.socialLinks } : {}),
+      },
       pageType: (ctx.pageType as WizardInput["pageType"]) ?? "product",
       businessDescription: ctx.description ?? "",
       productName: ctx.productName ?? (isCollection ? (ctx.brandName ?? "Our Collection") : ""),
       productDescription: ctx.description ?? "",
       price: ctx.priceRupees ? ctx.priceRupees * 100 : 0,
+      originalPrice: ctx.originalPriceRupees != null ? Math.round(ctx.originalPriceRupees * 100) : undefined,
       currency: "INR",
       productBullets: ctx.productBullets ?? [],
       productImageUrl: ctx.productImageUrl ?? "",
       productImages: ctx.productImages?.length ? ctx.productImages : undefined,
       productUrl: ctx.productUrl ?? "",
+      // Conversion-driving fields the AI extracts — now actually wired through.
+      variants: ctx.variants,
+      maxQuantity: ctx.maxQuantity,
+      customFields: ctx.customFields,
+      urgencyEndsAt: ctx.urgencyEndsAt,
+      stockCount: ctx.stockCount,
+      isPreOrder: ctx.isPreOrder,
+      deliveryLabel: ctx.deliveryLabel,
+      couponConfig: ctx.couponCode ? { code: ctx.couponCode, discountPercent: ctx.couponDiscount ?? 0 } : undefined,
+      reviewCount: ctx.reviewCount,
+      averageRating: ctx.averageRating,
+      language: ctx.language,
       ...(isCollection && ctx.collectionProducts?.length
         ? {
             collectionProducts: ctx.collectionProducts.map((p) => ({

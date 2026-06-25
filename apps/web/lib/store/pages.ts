@@ -104,7 +104,10 @@ async function blobGet(slug: string): Promise<PageSchema | null> {
 
 async function blobGetAll(ownerId?: string): Promise<PageSchema[]> {
   const { list, get } = await import("@vercel/blob");
-  const { blobs } = await list({ prefix: "pages/" });
+  // Include BOTH live (pages/) and draft (drafts/) namespaces, else a freshly
+  // generated (unpublished) page is invisible to the dashboard / chat restore.
+  const [live, draft] = await Promise.all([list({ prefix: "pages/" }), list({ prefix: "drafts/" })]);
+  const blobs = [...live.blobs, ...draft.blobs];
   const pages = await Promise.all(
     blobs.map(async (blob) => {
       try {

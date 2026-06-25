@@ -246,13 +246,20 @@ async function handleCheckout({
     const orderRes = await fetch("/api/razorpay/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: total, currency: items[0]?.currency ?? "INR", isCart: true, slug }),
+      // Send line items; the server recomputes the total from the page's prices
+      // so the cart total can't be tampered with.
+      body: JSON.stringify({
+        currency: items[0]?.currency ?? "INR",
+        isCart: true,
+        slug,
+        items: items.map((i) => ({ id: i.id, quantity: i.quantity })),
+      }),
     });
     if (!orderRes.ok) {
       const { error: e } = await orderRes.json() as { error?: string };
       throw new Error(e ?? "Order creation failed");
     }
-    const { orderId, keyId: orderKeyId } = await orderRes.json() as { orderId: string; keyId?: string };
+    const { orderId, keyId: orderKeyId, amount: orderAmount } = await orderRes.json() as { orderId: string; keyId?: string; amount?: number };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any;
@@ -271,7 +278,7 @@ async function handleCheckout({
     new (w.Razorpay as RazorpayCtor)({
       key: orderKeyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || razorpayKeyId,
       order_id: orderId,
-      amount: total,
+      amount: orderAmount ?? total,
       currency: items[0]?.currency ?? "INR",
       name: brand.name,
       description: `${items.length} item${items.length > 1 ? "s" : ""}`,

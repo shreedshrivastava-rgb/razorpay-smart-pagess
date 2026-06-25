@@ -662,17 +662,19 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: effectiveAmount,
+          // amount is computed server-side from the page; we only pass the
+          // coupon so the server can apply the (validated) discount.
           currency: payment.currency,
           receipt: `rcpt_${Date.now()}`,
           slug: page.slug,
+          couponCode: couponApplied ? couponCode : undefined,
         }),
       });
       if (!orderRes.ok) {
         const { error: errMsg } = await orderRes.json() as { error?: string };
         throw new Error(errMsg || `Order creation failed (${orderRes.status})`);
       }
-      const { orderId, keyId: orderKeyId } = await orderRes.json() as { orderId: string; keyId?: string };
+      const { orderId, keyId: orderKeyId, amount: orderAmount } = await orderRes.json() as { orderId: string; keyId?: string; amount?: number };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const w = window as any;
@@ -691,7 +693,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
       new (w.Razorpay as any)({
         key: orderKeyId || RZP_KEY || payment.razorpayKeyId,
         order_id: orderId,
-        amount: effectiveAmount,
+        amount: orderAmount ?? effectiveAmount,
         currency: payment.currency,
         name: brand.name,
         description: payment.name,

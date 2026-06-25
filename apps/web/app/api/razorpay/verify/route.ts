@@ -25,9 +25,25 @@ async function paymentIsCaptured(orderId: string, paymentId: string, authHeader:
     });
     if (!res.ok) return false;
     const p = await res.json() as { status?: string; order_id?: string };
-    return (p.status === "captured" || p.status === "authorized") && p.order_id === orderId;
+    // Require a CAPTURED payment — "authorized" means funds are only held and
+    // will lapse if not captured, so it must not count as paid.
+    return p.status === "captured" && p.order_id === orderId;
   } catch {
     return false;
+  }
+}
+
+// Authoritative paise amount of an order, read back from Razorpay.
+async function fetchOrderAmount(orderId: string, authHeader: string): Promise<number | null> {
+  try {
+    const res = await fetch(`https://api.razorpay.com/v1/orders/${orderId}`, {
+      headers: { Authorization: authHeader },
+    });
+    if (!res.ok) return null;
+    const o = await res.json() as { amount?: number };
+    return typeof o.amount === "number" ? o.amount : null;
+  } catch {
+    return null;
   }
 }
 
@@ -80,18 +96,26 @@ export async function POST(req: NextRequest) {
   }
 
   // Payment is genuine — record the order against the page owner (best-effort).
+  // Only record for a page that actually exists (avoids misattributing junk
+  // slugs to the primary owner), and use the authoritative amount from Razorpay
+  // rather than the client-supplied value.
   try {
-    if (body.slug && body.amount && body.amount > 0) {
+    if (body.slug) {
       const [page, ownerId] = await Promise.all([getPage(body.slug), getPageOwnerId(body.slug)]);
-      if (ownerId) {
+      if (page && ownerId) {
+        const orderAuth = merchant?.authHeader
+          ?? (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
+            ? `Basic ${Buffer.from(`${process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString("base64")}`
+            : null);
+        const amount = (orderAuth ? await fetchOrderAmount(orderId, orderAuth) : null) ?? body.amount ?? 0;
         await saveOrder({
           id: paymentId,
           orderId,
           paymentId,
           slug: body.slug,
-          brandName: page?.brand?.name ?? body.slug,
-          productName: page?.payment?.name ?? "",
-          amount: body.amount,
+          brandName: page.brand?.name ?? body.slug,
+          productName: page.payment?.name ?? "",
+          amount,
           currency: body.currency ?? "INR",
           customerName: body.customerName ?? "",
           customerEmail: body.customerEmail ?? "",

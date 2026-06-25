@@ -16,24 +16,56 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { amount: number; currency?: string; receipt?: string; slug?: string; isCart?: boolean };
+  let body: {
+    currency?: string; receipt?: string; slug?: string; isCart?: boolean;
+    couponCode?: string; items?: Array<{ id: string; quantity: number }>;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { amount, currency = "INR", receipt, slug, isCart } = body;
+  const { currency = "INR", receipt, slug, isCart, couponCode, items } = body;
+  if (!slug) {
+    return NextResponse.json({ error: "slug is required" }, { status: 400 });
+  }
+
+  // The amount is computed SERVER-SIDE from the stored page — never trusted from
+  // the client — so a buyer can't create a cheap order and pay less.
+  const page = await getPage(slug);
+  if (!page) {
+    return NextResponse.json({ error: "Page not found" }, { status: 404 });
+  }
+
+  let amount: number;
+  if (isCart) {
+    const grid = page.sections.find((s) => s.type === "product-grid");
+    const priceById = new Map(
+      (grid && grid.type === "product-grid" ? grid.items : []).map((it) => [it.id, it.price] as const)
+    );
+    amount = (items ?? []).reduce((sum, li) => {
+      const p = priceById.get(li.id);
+      const qty = Math.max(1, Math.floor(Number(li.quantity) || 1));
+      return p != null ? sum + p * qty : sum;
+    }, 0);
+  } else {
+    amount = page.payment.amount;
+    const cc = page.payment.couponConfig;
+    if (cc && couponCode && couponCode.trim().toUpperCase() === cc.code.toUpperCase()) {
+      amount -= Math.round((amount * cc.discountPercent) / 100);
+    }
+  }
 
   if (!amount || amount <= 0) {
-    return NextResponse.json({ error: "amount must be a positive integer (paise)" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid order amount" }, { status: 400 });
   }
 
   // Route the order to the page owner's own Razorpay account when they've
   // connected one; otherwise fall back to the platform's env keys.
   let authHeader: string;
   let checkoutKeyId: string;
-  const merchant = slug ? await resolveMerchantAuth((await getPageOwnerId(slug)) ?? "") : null;
+  const merchant = await resolveMerchantAuth((await getPageOwnerId(slug)) ?? "");
   if (merchant) {
     authHeader = merchant.authHeader;
     checkoutKeyId = merchant.keyId;
@@ -45,20 +77,6 @@ export async function POST(req: NextRequest) {
     }
     authHeader = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`;
     checkoutKeyId = keyId;
-  }
-
-  if (slug && !isCart) {
-    try {
-      const page = await getPage(slug);
-      if (page && page.payment.amount > 0) {
-        if (amount > page.payment.amount) {
-          return NextResponse.json({ error: "Invalid order amount" }, { status: 400 });
-        }
-        if (amount <= 0) {
-          return NextResponse.json({ error: "Amount must be positive" }, { status: 400 });
-        }
-      }
-    } catch { /* non-fatal */ }
   }
 
   const rzpRes = await fetch("https://api.razorpay.com/v1/orders", {
