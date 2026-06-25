@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 // Azure OpenAI Whisper STT proxy — keeps API key server-side
 export async function POST(req: NextRequest) {
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
 
   if (!res.ok) {
     const err = await res.text();
-    console.error("Whisper STT error:", res.status, err);
+    logger.error({ status: res.status, err }, "Whisper STT error");
     return NextResponse.json({ error: "STT failed" }, { status: res.status });
   }
 

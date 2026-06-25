@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 // ElevenLabs TTS proxy — keeps API key server-side, returns audio stream
 // Set ELEVENLABS_API_KEY and optionally ELEVENLABS_VOICE_ID in .env.local
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const err = await res.text();
-      console.error("ElevenLabs error:", err);
+      logger.error({ err }, "ElevenLabs TTS error");
       return NextResponse.json({ error: "TTS failed" }, { status: 500 });
     }
 
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("TTS proxy error:", err);
+    logger.error({ err }, "TTS proxy error");
     return NextResponse.json({ error: "TTS request failed" }, { status: 500 });
   }
 }

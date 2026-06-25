@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllPages, savePage } from "@/lib/store/pages";
 import { ownerId } from "@/auth";
+import { logger } from "@/lib/logger";
 import type { PageSchema } from "@/lib/schema/page-schema";
 
 export async function GET() {
@@ -10,7 +11,7 @@ export async function GET() {
     const pages = await getAllPages(owner);
     return NextResponse.json({ success: true, data: pages });
   } catch (error) {
-    console.error("List pages error:", error);
+    logger.error({ err: error }, "list pages error");
     return NextResponse.json({ error: "Failed to list pages" }, { status: 500 });
   }
 }
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
     await savePage(page, undefined, owner);
     return NextResponse.json({ success: true, data: page });
   } catch (error) {
-    console.error("Save page error:", error);
+    logger.error({ err: error }, "save page error");
     return NextResponse.json({ error: "Failed to save page" }, { status: 500 });
   }
 }

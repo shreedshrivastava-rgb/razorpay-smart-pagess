@@ -5,6 +5,7 @@ import { savePage, ensureUniqueSlug, isPageOwner, updatePage } from "@/lib/store
 import { ownerId } from "@/auth";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { bakeGeneratedImages } from "@/lib/image-bake";
+import { logger } from "@/lib/logger";
 import type { WizardInput } from "@/lib/schema/page-schema";
 
 export async function POST(req: NextRequest) {
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
       headers: getRateLimitHeaders(rateLimitResult),
     });
   } catch (error) {
-    console.error(`[${reqId}] Generation error:`, error);
+    logger.error({ reqId, err: error }, "generation error");
     const message = error instanceof Error ? error.message : "Generation failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }

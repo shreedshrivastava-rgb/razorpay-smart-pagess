@@ -4,6 +4,7 @@ import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { getPage, getPageOwnerId } from "@/lib/store/pages";
 import { resolveMerchantAuth } from "@/lib/store/merchants";
 import { saveOrder } from "@/lib/store/orders";
+import { logger } from "@/lib/logger";
 
 // HMAC check against a specific key secret (BYO / platform).
 function signatureMatches(orderId: string, paymentId: string, signature: string, secret: string): boolean {
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!verified) {
-    console.warn("Razorpay payment verification failed", { orderId, paymentId });
+    logger.warn({ orderId, paymentId }, "razorpay payment verification failed");
     return NextResponse.json({ verified: false }, { status: 400 });
   }
 
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch (err) {
-    console.error("Order save failed:", err);
+    logger.error({ err }, "order save failed");
   }
 
   return NextResponse.json({ verified: true });

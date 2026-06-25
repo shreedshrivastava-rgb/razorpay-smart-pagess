@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withRetry } from "@/lib/retry";
+import { logger } from "@/lib/logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -363,7 +364,7 @@ export async function POST(req: NextRequest) {
       parsed = candidate;
     } catch {
       // Response may be truncated — retry once asking for compact JSON
-      console.error(`[${reqId}] Chat JSON parse error, retrying. Raw:`, rawText.slice(0, 300));
+      logger.warn({ reqId, preview: rawText.slice(0, 300) }, "chat JSON parse error, retrying");
       const retryRawText = await withRetry(
         async () => {
           const res = await fetch(endpoint, {
@@ -415,7 +416,7 @@ export async function POST(req: NextRequest) {
       photoMapping: parsed.photoMapping ?? null,
     });
   } catch (err) {
-    console.error(`[${reqId}] Chat API error:`, err);
+    logger.error({ reqId, err }, "chat API error");
     // Return a valid 200 response so the UI never crashes — user sees a friendly retry message
     return NextResponse.json({
       reply: "I ran into a hiccup processing that. Could you rephrase, or if you're adding many products, try listing fewer at once?",

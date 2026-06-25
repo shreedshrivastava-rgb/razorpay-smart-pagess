@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPage, getPageOwnerId } from "@/lib/store/pages";
 import { resolveMerchantAuth } from "@/lib/store/merchants";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
 
   if (!rzpRes.ok) {
     const rawErr = await rzpRes.text();
-    console.error("Razorpay order error:", rzpRes.status, rawErr.slice(0, 300));
+    logger.error({ status: rzpRes.status, body: rawErr.slice(0, 300) }, "razorpay order error");
     let userMessage = "Order creation failed. Please try again.";
     try {
       const parsed = JSON.parse(rawErr) as { error?: { description?: string } };

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidUrl } from "@/lib/utils";
 import { extractBrand, extractProduct } from "@/lib/extract/jina";
+import { logger } from "@/lib/logger";
 
 function normalizeAndValidate(raw: string): { url: string } | { error: string; status: number } {
   const normalized = raw.startsWith("http") ? raw : `https://${raw}`;
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
     const product = await extractProduct(result.url);
     return NextResponse.json(product);
   } catch (err) {
-    console.error("Product extraction error:", err);
+    logger.error({ err }, "product extraction error");
     return NextResponse.json({ error: "Extraction failed" }, { status: 500 });
   }
 }
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
     const extracted = await extractBrand(result.url);
     return NextResponse.json({ success: true, data: extracted });
   } catch (error) {
-    console.error("Extraction error:", error);
+    logger.error({ err: error }, "website extraction error");
     return NextResponse.json({ error: "Failed to extract website data." }, { status: 500 });
   }
 }
