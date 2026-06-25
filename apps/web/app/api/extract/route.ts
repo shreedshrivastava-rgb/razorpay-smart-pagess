@@ -4,6 +4,7 @@ import { extractBrand, extractProduct } from "@/lib/extract/jina";
 import { logger } from "@/lib/logger";
 import { ownerId } from "@/auth";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
+import { checkCsrf } from "@/lib/csrf";
 
 // Auth + per-owner rate limit shared by both extract handlers — they proxy a
 // billable upstream (Jina), so cap usage per account.
@@ -65,6 +66,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/extract — used by Step1Import for brand/website extraction
 export async function POST(req: NextRequest) {
+  if (!checkCsrf(req)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const g = await guard();
   if (g instanceof NextResponse) return g;
   let raw: string;

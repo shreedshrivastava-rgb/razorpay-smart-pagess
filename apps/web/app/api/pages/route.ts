@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAllPages, savePage } from "@/lib/store/pages";
 import { ownerId } from "@/auth";
 import { logger } from "@/lib/logger";
+import { checkCsrf } from "@/lib/csrf";
 import type { PageSchema } from "@/lib/schema/page-schema";
 
 export async function GET() {
@@ -17,6 +18,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!checkCsrf(req)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const owner = await ownerId();
   if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {

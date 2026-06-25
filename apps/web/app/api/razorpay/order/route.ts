@@ -3,8 +3,10 @@ import { getPage, getPageOwnerId } from "@/lib/store/pages";
 import { resolveMerchantAuth } from "@/lib/store/merchants";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { logger } from "@/lib/logger";
+import { checkCsrf } from "@/lib/csrf";
 
 export async function POST(req: NextRequest) {
+  if (!checkCsrf(req)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const rateLimitResult = await checkRateLimit("order", ip, 20, 60_000);
   if (!rateLimitResult.allowed) {

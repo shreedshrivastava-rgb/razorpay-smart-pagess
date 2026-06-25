@@ -3,19 +3,8 @@ import { revalidatePath } from "next/cache";
 import { getPage, getPageEditToken, updatePage, deletePage, isPageOwner, getPageChat } from "@/lib/store/pages";
 import { ownerId } from "@/auth";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
+import { checkCsrf } from "@/lib/csrf";
 import type { PageSchema } from "@/lib/schema/page-schema";
-
-function checkCsrf(req: NextRequest): boolean {
-  const host = req.headers.get("host");
-  if (!host) return false;
-  const source = req.headers.get("origin") ?? req.headers.get("referer");
-  if (!source) return false;
-  try {
-    return new URL(source).host === host;
-  } catch {
-    return false;
-  }
-}
 
 export async function GET(
   req: NextRequest,

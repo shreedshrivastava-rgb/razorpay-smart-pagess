@@ -6,9 +6,11 @@ import { ownerId } from "@/auth";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { bakeGeneratedImages } from "@/lib/image-bake";
 import { logger } from "@/lib/logger";
+import { checkCsrf } from "@/lib/csrf";
 import type { WizardInput } from "@/lib/schema/page-schema";
 
 export async function POST(req: NextRequest) {
+  if (!checkCsrf(req)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const rateLimitResult = await checkRateLimit("generate", ip, 5, 60_000);
   if (!rateLimitResult.allowed) {

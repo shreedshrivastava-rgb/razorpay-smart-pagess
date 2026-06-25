@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPage, getPageEditToken, ensureUniqueSlug, publishPage, isPageOwner, updatePage } from "@/lib/store/pages";
 import { bakeGeneratedImages } from "@/lib/image-bake";
 import { ownerId } from "@/auth";
+import { checkCsrf } from "@/lib/csrf";
 
 export async function POST(req: NextRequest) {
+  if (!checkCsrf(req)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const owner = await ownerId();
   if (!owner) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
