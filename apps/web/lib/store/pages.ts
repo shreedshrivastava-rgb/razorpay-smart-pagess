@@ -368,6 +368,13 @@ export async function updatePage(
   updates: Partial<PageSchema>,
   expectedUpdatedAt?: string
 ): Promise<PageSchema | null> {
+  // Defense in depth: never let a merge overwrite internal "_"-prefixed fields
+  // (_ownerId, _editToken, _chat). Protects every backend and caller even if an
+  // upstream allowlist is missed.
+  updates = Object.fromEntries(
+    Object.entries(updates ?? {}).filter(([k]) => !k.startsWith("_"))
+  ) as Partial<PageSchema>;
+
   if (isDbAvailable()) return updatePageDb(slug, updates, expectedUpdatedAt);
 
   if (blobAvailable()) {

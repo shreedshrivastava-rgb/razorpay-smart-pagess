@@ -4,6 +4,7 @@ import { getPage, getPageEditToken, updatePage, deletePage, isPageOwner, getPage
 import { ownerId } from "@/auth";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { checkCsrf } from "@/lib/csrf";
+import { pickWritablePageUpdate } from "@/lib/page-update";
 import type { PageSchema } from "@/lib/schema/page-schema";
 
 export async function GET(
@@ -51,7 +52,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const updates = await req.json();
+  const updates = pickWritablePageUpdate(await req.json());
   const page = await updatePage(id, updates);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
   revalidatePath(`/p/${id}`);
