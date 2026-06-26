@@ -11,7 +11,9 @@ import Google from "next-auth/providers/google";
  * Required env vars (see .env.local):
  *   AUTH_SECRET          – random secret (npx auth secret)
  *   AUTH_GOOGLE_ID       – Google OAuth client id
- *   AUTH_GOOGLE_SECRET   – Google OAuth client secret
+ *   AUTH_GOOGLE_SECRET 
+ * 
+ *    – Google OAuth client secret
  */
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [Google],
