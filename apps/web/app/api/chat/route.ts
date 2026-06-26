@@ -25,8 +25,9 @@ export interface ChatContext {
   productImageUrl?: string;
   productImages?: string[];
   productUrl?: string;
-  // Variants & options
-  variants?: { label: string; options: string[] }[];
+  // Variants & options. An option is a plain label, or { label, priceDelta }
+  // where priceDelta (paise) is ADDED to the base price for that choice.
+  variants?: { label: string; options: Array<string | { label: string; priceDelta: number }> }[];
   maxQuantity?: number;
   customFields?: { label: string; required: boolean; type: "text" | "select"; options?: string[] }[];
   // Urgency & scarcity
@@ -104,6 +105,8 @@ You MUST respond ONLY with valid JSON in this exact format (no markdown, no extr
     "productImageUrl": "string or null",
     "productUrl": "string or null",
     "variants": [{"label": "Size", "options": ["S","M","L"]}] or null,
+    // If some options cost more, give that option a priceDelta in PAISE added to the base price.
+    // e.g. base price ₹200 (the cheapest), 1.5kg costs ₹300 → {"label":"Weight","options":[{"label":"0.5kg","priceDelta":0},{"label":"1.5kg","priceDelta":10000}]}
     "maxQuantity": number_or_null,
     "customFields": [{"label": "string", "required": true, "type": "text", "options": null}] or null,
     "urgencyEndsAt": "ISO8601 string or null",
@@ -454,7 +457,7 @@ function buildContextSummary(ctx: ChatContext): string {
   if (ctx.productBullets?.length) parts.push(`bullets=${ctx.productBullets.length} set`);
   if (ctx.productImageUrl) parts.push(`photo=uploaded`);
   if (ctx.productUrl) parts.push(`productUrl="${ctx.productUrl}"`);
-  if (ctx.variants?.length) parts.push(`variants=${ctx.variants.map((v) => `${v.label}:[${v.options.join(",")}]`).join("; ")}`);
+  if (ctx.variants?.length) parts.push(`variants=${ctx.variants.map((v) => `${v.label}:[${v.options.map((o) => typeof o === "string" ? o : `${o.label}(+${o.priceDelta})`).join(",")}]`).join("; ")}`);
   if (ctx.maxQuantity && ctx.maxQuantity > 1) parts.push(`maxQty=${ctx.maxQuantity}`);
   if (ctx.customFields?.length) parts.push(`customFields=${ctx.customFields.map((f) => f.label).join(", ")}`);
   if (ctx.urgencyEndsAt) parts.push(`urgencyEndsAt=${ctx.urgencyEndsAt}`);
