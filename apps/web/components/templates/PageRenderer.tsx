@@ -394,6 +394,10 @@ function CheckoutHero({
           .map((i) => i.title) ?? [];
 
   const trustSection = aboveSections.find((s) => s.type === "trust");
+  // Indices into page.sections so inline edits write to the right path.
+  const featureSectionIndex = featureSection ? page.sections.indexOf(featureSection) : -1;
+  const trustSectionIndex = trustSection ? page.sections.indexOf(trustSection) : -1;
+  const hasBulletsInPage = ((page.productBullets as string[] | undefined) ?? []).filter(Boolean).length > 0;
   const galleryImages = page.productImages && page.productImages.length > 1 ? page.productImages : null;
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -541,7 +545,9 @@ function CheckoutHero({
             {derivedBullets.length > 0 && (
               <div className="grid grid-cols-2 gap-2">
                 {derivedBullets.map((b, i) => {
-                  const hasBulletsInPage = ((page.productBullets as string[] | undefined) ?? []).filter(Boolean).length > 0;
+                  const bulletPath = hasBulletsInPage
+                    ? `productBullets.${i}`
+                    : featureSectionIndex >= 0 ? `sections.${featureSectionIndex}.items.${i}.title` : null;
                   return (
                     <div
                       key={i}
@@ -555,10 +561,10 @@ function CheckoutHero({
                         <CheckIcon />
                       </span>
                       <span className="text-gray-700 text-xs leading-snug font-semibold flex-1 min-w-0">
-                        {editMode && hasBulletsInPage ? (
+                        {editMode && bulletPath ? (
                           <input
-                            value={fields[`productBullets.${i}`] ?? b}
-                            onChange={(e) => setField(`productBullets.${i}`, e.target.value)}
+                            value={fields[bulletPath] ?? b}
+                            onChange={(e) => setField(bulletPath, e.target.value)}
                             className="bg-transparent border-b border-indigo-200 focus:border-indigo-400 outline-none w-full text-gray-700 text-xs font-semibold"
                           />
                         ) : b}
@@ -577,7 +583,15 @@ function CheckoutHero({
                     key={i}
                     className="flex items-center gap-1.5 text-xs text-gray-600 bg-white/80 rounded-full px-3 py-1.5 border border-black/[0.06] font-semibold"
                   >
-                    <span aria-hidden="true">{item.icon}</span> {item.label}
+                    <span aria-hidden="true">{item.icon}</span>{" "}
+                    {editMode && trustSectionIndex >= 0 ? (
+                      <input
+                        value={fields[`sections.${trustSectionIndex}.items.${i}.label`] ?? item.label}
+                        onChange={(e) => setField(`sections.${trustSectionIndex}.items.${i}.label`, e.target.value)}
+                        className="bg-transparent border-b border-indigo-200 focus:border-indigo-400 outline-none text-xs text-gray-600 font-semibold"
+                        size={Math.max(6, item.label.length)}
+                      />
+                    ) : item.label}
                   </span>
                 ))}
               </div>

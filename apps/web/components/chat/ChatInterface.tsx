@@ -26,8 +26,7 @@ function pageToContext(page: PageSchema): ChatContext {
     productBullets: page.productBullets,
     productImageUrl: page.productImageUrl,
     productImages: page.productImages,
-    // ChatContext carries option labels only; price deltas live on the page.
-    variants: page.variants?.map((v) => ({ label: v.label, options: v.options.map(variantChoice).map((o) => o.label) })),
+    variants: page.variants?.map((v) => ({ label: v.label, options: v.options.map(variantChoice) })),
     maxQuantity: page.maxQuantity,
     urgencyEndsAt: page.urgencyEndsAt,
     stockCount: page.stockCount,
