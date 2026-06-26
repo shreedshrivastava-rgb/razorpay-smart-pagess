@@ -107,7 +107,11 @@ function ProductCard({
     if (file.size > 4 * 1024 * 1024) { alert("Image must be under 4 MB"); return; }
     const reader = new FileReader();
     reader.onload = () => {
-      setField(`${basePath}.imageUrl`, reader.result as string);
+      const dataUrl = reader.result as string;
+      // Optimistic preview, then upload and swap in the stored URL so we don't
+      // persist a multi-MB base64 blob inside the page.
+      setField(`${basePath}.imageUrl`, dataUrl);
+      void uploadImage(dataUrl).then((url) => { if (url) setField(`${basePath}.imageUrl`, url); });
     };
     reader.readAsDataURL(file);
     e.target.value = "";
