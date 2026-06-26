@@ -5,6 +5,7 @@ import type { ProductGridSection, Brand, ProductGridItem } from "@/lib/schema/pa
 import { formatCurrency, cn } from "@/lib/utils";
 import { useCart } from "@/components/cart/CartContext";
 import { useEditModeOptional } from "@/components/editor/EditModeContext";
+import { uploadImage } from "@/lib/image-store";
 import { GeneratedProductBanner } from "./GeneratedProductBanner";
 
 interface ProductGridBlockProps {
