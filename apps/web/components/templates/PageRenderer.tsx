@@ -9,6 +9,7 @@ import { CartProvider, useCart } from "@/components/cart/CartContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
 import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
 import { EditableSection } from "@/components/editor/EditableSection";
+import { uploadImage } from "@/lib/image-store";
 import { inferProductEmoji, darken } from "@/lib/product-visual";
 import { generatedImageUrl, heroImagePrompt, productImagePrompt } from "@/lib/image-gen";
 
@@ -399,7 +400,11 @@ function CheckoutHero({
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) { alert("Image must be under 4 MB"); return; }
     const reader = new FileReader();
-    reader.onload = () => { setField("productImageUrl", reader.result as string); };
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setField("productImageUrl", dataUrl); // optimistic preview
+      void uploadImage(dataUrl).then((url) => { if (url) setField("productImageUrl", url); });
+    };
     reader.readAsDataURL(file);
     e.target.value = "";
   }
@@ -1178,7 +1183,11 @@ function LandingHero({ page, brand, payment }: { page: PageSchema; brand: Brand;
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) { alert("Image must be under 4 MB"); return; }
     const reader = new FileReader();
-    reader.onload = () => { setField("productImageUrl", reader.result as string); };
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setField("productImageUrl", dataUrl); // optimistic preview
+      void uploadImage(dataUrl).then((url) => { if (url) setField("productImageUrl", url); });
+    };
     reader.readAsDataURL(file);
     e.target.value = "";
   }
