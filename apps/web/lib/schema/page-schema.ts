@@ -14,10 +14,21 @@ export const CustomFieldSchema = z.object({
   options: z.array(z.string()).optional(),
 });
 
+// A variant choice is either a plain label (no price change) or a label with a
+// priceDelta in paise added to the base price (e.g. "1.5kg" → +10000).
+export const VariantChoiceSchema = z.union([
+  z.string(),
+  z.object({ label: z.string(), priceDelta: z.number().default(0) }),
+]);
 export const VariantOptionSchema = z.object({
   label: z.string(),
-  options: z.array(z.string()),
+  options: z.array(VariantChoiceSchema),
 });
+
+// Normalize a choice to { label, priceDelta } regardless of which form it's in.
+export function variantChoice(opt: z.infer<typeof VariantChoiceSchema>): { label: string; priceDelta: number } {
+  return typeof opt === "string" ? { label: opt, priceDelta: 0 } : { label: opt.label, priceDelta: opt.priceDelta ?? 0 };
+}
 
 // ─── Brand ───────────────────────────────────────────────────────
 export const BrandSchema = z.object({
