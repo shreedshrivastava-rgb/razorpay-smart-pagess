@@ -656,7 +656,25 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
     setError("");
 
     if (isFree) {
-      await new Promise((r) => setTimeout(r, 1200));
+      // Confirm server-side that the page is actually free (and record it) —
+      // don't trust a client-forced "free" on a paid page.
+      try {
+        const res = await fetch("/api/razorpay/free-claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug: page.slug, customerName: name, customerEmail: email, customerPhone: phone }),
+        });
+        if (!res.ok) {
+          const { error: e } = await res.json().catch(() => ({ error: "" })) as { error?: string };
+          setError(e || "Couldn't complete. Please try again.");
+          setLoading(false);
+          return;
+        }
+      } catch {
+        setError("Couldn't complete. Please try again.");
+        setLoading(false);
+        return;
+      }
       setLoading(false);
       setSuccess(true);
       return;
