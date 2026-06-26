@@ -5,6 +5,7 @@ import { useSearchParams, useParams } from "next/navigation";
 import { VoiceButton } from "./VoiceButton";
 import type { ChatContext } from "@/app/api/chat/route";
 import type { PageSchema, WizardInput } from "@/lib/schema/page-schema";
+import { variantChoice } from "@/lib/schema/page-schema";
 import type { StoredChat } from "@/lib/store/pages";
 
 // Reconstruct the chat context from a stored page so the AI can keep editing it
@@ -25,7 +26,8 @@ function pageToContext(page: PageSchema): ChatContext {
     productBullets: page.productBullets,
     productImageUrl: page.productImageUrl,
     productImages: page.productImages,
-    variants: page.variants,
+    // ChatContext carries option labels only; price deltas live on the page.
+    variants: page.variants?.map((v) => ({ label: v.label, options: v.options.map(variantChoice).map((o) => o.label) })),
     maxQuantity: page.maxQuantity,
     urgencyEndsAt: page.urgencyEndsAt,
     stockCount: page.stockCount,
