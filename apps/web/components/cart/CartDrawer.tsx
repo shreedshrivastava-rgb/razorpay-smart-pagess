@@ -234,9 +234,26 @@ async function handleCheckout({
   setError("");
   setLoading(true);
 
-  // Free carts complete instantly; everything else opens the real Razorpay.
+  // Free carts: confirm server-side that the items are actually free (and record
+  // the claim) before showing success. Everything else opens the real Razorpay.
   if (total === 0) {
-    await new Promise((r) => setTimeout(r, 1200));
+    try {
+      const res = await fetch("/api/razorpay/free-claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, isCart: true, items: items.map((i) => ({ id: i.id, quantity: i.quantity })), customerName: name, customerEmail: email, customerPhone: phone }),
+      });
+      if (!res.ok) {
+        const { error: e } = await res.json().catch(() => ({ error: "" })) as { error?: string };
+        setError(e || "Couldn't complete. Please try again.");
+        setLoading(false);
+        return;
+      }
+    } catch {
+      setError("Couldn't complete. Please try again.");
+      setLoading(false);
+      return;
+    }
     setLoading(false);
     onSuccess();
     return;
