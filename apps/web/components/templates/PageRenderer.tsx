@@ -1,6 +1,7 @@
 "use client";
 
 import type { PageSchema, Section, Brand, Payment } from "@/lib/schema/page-schema";
+import { variantChoice } from "@/lib/schema/page-schema";
 import { SectionRenderer } from "@/components/blocks/SectionRenderer";
 import { formatCurrency, cn } from "@/lib/utils";
 import { useState, useEffect, useRef, type ReactNode } from "react";
@@ -614,10 +615,17 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
 
   const isFree = !payment.amount || payment.amount <= 0;
 
+  // Selected variants may add to the price (e.g. a larger size costs more).
+  const variantDelta = (page.variants ?? []).reduce((sum, v) => {
+    const chosen = selectedVariants[v.label];
+    const opt = v.options.map(variantChoice).find((o) => o.label === chosen);
+    return sum + (opt?.priceDelta ?? 0);
+  }, 0);
+  const baseAmount = payment.amount + variantDelta;
   const discount = couponApplied && payment.couponConfig
-    ? Math.round(payment.amount * payment.couponConfig.discountPercent / 100)
+    ? Math.round(baseAmount * payment.couponConfig.discountPercent / 100)
     : 0;
-  const effectiveAmount = payment.amount - discount;
+  const effectiveAmount = baseAmount - discount;
   const formatted = isFree ? "Free" : formatCurrency(effectiveAmount, payment.currency);
 
   function applyCoupon() {
@@ -641,7 +649,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
     for (const v of page.variants ?? []) {
       const chosen = selectedVariants[v.label];
       if (!chosen) return `Please select a ${v.label}.`;
-      if (!v.options.includes(chosen)) return `Invalid ${v.label} selection. Please choose again.`;
+      if (!v.options.map(variantChoice).some((o) => o.label === chosen)) return `Invalid ${v.label} selection. Please choose again.`;
     }
     for (const f of payment.customFields ?? []) {
       if (f.required && !customFieldValues[f.label]?.trim()) return `"${f.label}" is required.`;
@@ -691,6 +699,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
           receipt: `rcpt_${Date.now()}`,
           slug: page.slug,
           couponCode: couponApplied ? couponCode : undefined,
+          variants: selectedVariants,
         }),
       });
       if (!orderRes.ok) {
@@ -869,7 +878,11 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
                 onBlur={(e) => { e.target.style.borderColor = "#e5e7eb"; }}
               >
                 <option value="">Select {variant.label}…</option>
-                {variant.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                {variant.options.map(variantChoice).map((o) => (
+                  <option key={o.label} value={o.label}>
+                    {o.label}{o.priceDelta > 0 ? ` (+${formatCurrency(o.priceDelta, payment.currency)})` : ""}
+                  </option>
+                ))}
               </select>
             </div>
           ))}
