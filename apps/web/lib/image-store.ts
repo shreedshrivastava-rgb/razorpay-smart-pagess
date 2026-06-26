@@ -49,6 +49,23 @@ export async function persistImageFromUrl(sourceUrl: string, key: string): Promi
   }
 }
 
+// Client helper: POST a base64 data URL to /api/upload and get back a stored URL.
+// Returns null on failure (callers keep the optimistic data-URL preview).
+export async function uploadImage(dataUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataUrl }),
+    });
+    if (!res.ok) return null;
+    const { url } = (await res.json()) as { url?: string };
+    return url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Decode a base64 data URL ("data:image/png;base64,…") into bytes + content type.
 export function decodeDataUrl(dataUrl: string): { bytes: Buffer; contentType: string } | null {
   const m = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(dataUrl);
