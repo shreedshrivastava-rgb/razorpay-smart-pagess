@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPage, getPageOwnerId } from "@/lib/store/pages";
+import { variantChoice } from "@/lib/schema/page-schema";
 import { resolveMerchantAuth } from "@/lib/store/merchants";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { logger } from "@/lib/logger";
@@ -19,6 +20,7 @@ export async function POST(req: NextRequest) {
   let body: {
     currency?: string; receipt?: string; slug?: string; isCart?: boolean;
     couponCode?: string; items?: Array<{ id: string; quantity: number }>;
+    variants?: Record<string, string>;
   };
   try {
     body = await req.json();
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { currency = "INR", receipt, slug, isCart, couponCode, items } = body;
+  const { currency = "INR", receipt, slug, isCart, couponCode, items, variants } = body;
   if (!slug) {
     return NextResponse.json({ error: "slug is required" }, { status: 400 });
   }
@@ -51,6 +53,13 @@ export async function POST(req: NextRequest) {
     }, 0);
   } else {
     amount = page.payment.amount;
+    // Add price deltas for the selected variants (e.g. a larger size).
+    for (const v of page.variants ?? []) {
+      const chosen = variants?.[v.label];
+      if (!chosen) continue;
+      const opt = v.options.map(variantChoice).find((o) => o.label === chosen);
+      if (opt) amount += opt.priceDelta;
+    }
     const cc = page.payment.couponConfig;
     if (cc && couponCode && couponCode.trim().toUpperCase() === cc.code.toUpperCase()) {
       amount -= Math.round((amount * cc.discountPercent) / 100);
