@@ -25,22 +25,39 @@ export function generatedImageUrl(
     `?width=${width}&height=${height}&nologo=true&seed=${seed}`;
 }
 
-// Prompt for a single product's photo, grounded in the brand context. Leads with
-// the description so vague/brand-invented names (e.g. "Beddy") still produce a
-// relevant image.
-export function productImagePrompt(name: string, brandName?: string, description?: string): string {
-  const desc = description?.trim();
-  const subject = desc ? `${name}, ${desc}` : name;
-  const ctx = brandName ? `, by ${brandName}` : "";
-  return `professional product photography of ${subject}${ctx}, ` +
-    `centered, clean studio background, soft lighting, high detail, photorealistic, no text, no watermark`;
+export interface ImagePromptContext {
+  brandName?: string;
+  description?: string;   // product or business description
+  bullets?: string[];     // feature/material hints
+  businessType?: string;  // e.g. "leather goods store", "bakery"
 }
 
-// Prompt for a wide hero banner that evokes the brand/business.
-export function heroImagePrompt(brandName: string, description?: string): string {
-  const subject = description?.trim() || brandName;
-  return `${subject}, lifestyle hero banner photography for ${brandName}, ` +
-    `wide cinematic composition, vibrant, professional, photorealistic, no text, no watermark`;
+// Builds a richer, more specific product prompt. Leads with the description and
+// folds in material/feature hints + the business type so generic names produce
+// an on-topic photo (the earlier prompt was too vague).
+export function productImagePrompt(name: string, ctx: string | ImagePromptContext = {}): string {
+  // Back-compat: a bare brandName string was the old 2nd arg.
+  const c: ImagePromptContext = typeof ctx === "string" ? { brandName: ctx } : ctx;
+  const desc = c.description?.trim();
+  const hints = (c.bullets ?? []).filter(Boolean).slice(0, 3).join(", ");
+  const subject = desc ? `${name} — ${desc}` : name;
+  const parts = [
+    `professional e-commerce product photography of ${subject}`,
+    c.businessType ? `a ${c.businessType} product` : "",
+    hints ? `featuring ${hints}` : "",
+    c.brandName ? `for the brand ${c.brandName}` : "",
+    "single product centered, clean seamless studio background, soft diffused lighting, sharp focus, high detail, realistic, no text, no watermark, no people",
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
+// Wide hero banner that evokes the actual business (e.g. a leather storefront),
+// not a generic gradient.
+export function heroImagePrompt(brandName: string, description?: string, businessType?: string): string {
+  const subject = description?.trim() || businessType || brandName;
+  const kind = businessType ? `${businessType} ` : "";
+  return `${subject}, ${kind}lifestyle hero banner photography for ${brandName}, ` +
+    `wide cinematic composition, on-brand, vibrant, professional, photorealistic, high detail, no text, no watermark`;
 }
 
 import type { PageSchema } from "@/lib/schema/page-schema";
@@ -55,6 +72,7 @@ export function collectPageImageUrls(page: PageSchema): string[] {
   const brandName = page.brand?.name ?? "";
   const primaryDesc = page.payment?.description;
 
+  const businessType = page.pageType === "collection" ? undefined : page.pageType;
   if (page.pageType === "collection") {
     urls.push(generatedImageUrl(heroImagePrompt(brandName, primaryDesc), {
       width: 1280, height: 640, seedKey: `hero:${brandName}`,
@@ -63,15 +81,18 @@ export function collectPageImageUrls(page: PageSchema): string[] {
       if (section.type !== "product-grid") continue;
       for (const item of section.items ?? []) {
         if (item.imageUrl) continue;
-        urls.push(generatedImageUrl(productImagePrompt(item.name, brandName, item.description), {
-          width: 600, height: 450, seedKey: `${brandName}:${item.name}`,
-        }));
+        urls.push(generatedImageUrl(
+          productImagePrompt(item.name, { brandName, description: item.description, bullets: item.bullets }),
+          // Seed by stable product id so a rename keeps the same image.
+          { width: 600, height: 450, seedKey: `prod:${item.id}` },
+        ));
       }
     }
   } else if (!page.productImageUrl && page.payment?.name) {
-    urls.push(generatedImageUrl(productImagePrompt(page.payment.name, brandName, primaryDesc), {
-      width: 800, height: 600, seedKey: `${brandName}:${page.payment.name}`,
-    }));
+    urls.push(generatedImageUrl(
+      productImagePrompt(page.payment.name, { brandName, description: primaryDesc, bullets: page.productBullets, businessType }),
+      { width: 800, height: 600, seedKey: `${brandName}:${page.payment.name}` },
+    ));
   }
   return urls;
 }

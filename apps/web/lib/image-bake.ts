@@ -68,8 +68,8 @@ export async function bakeGeneratedImages(page: PageSchema): Promise<Partial<Pag
       if (s.type !== "product-grid") continue;
       for (const it of (s as ProductGridSection).items) {
         if (it.imageUrl) continue;
-        const u = generatedImageUrl(productImagePrompt(it.name, brandName, it.description), {
-          width: 600, height: 450, seedKey: `${brandName}:${it.name}`,
+        const u = generatedImageUrl(productImagePrompt(it.name, { brandName, description: it.description, bullets: it.bullets }), {
+          width: 600, height: 450, seedKey: `prod:${it.id}`,
         });
         tasks.push(storeImage(u, `${page.slug}-${it.id}`).then((b) => { if (b) it.imageUrl = b; }));
       }
