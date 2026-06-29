@@ -77,7 +77,7 @@ export async function bakeGeneratedImages(page: PageSchema): Promise<Partial<Pag
     await Promise.allSettled(tasks);
     updates.sections = sections;
   } else if (!page.productImageUrl && page.payment?.name) {
-    const u = generatedImageUrl(productImagePrompt(page.payment.name, brandName, page.payment.description), {
+    const u = generatedImageUrl(productImagePrompt(page.payment.name, { brandName, description: page.payment.description, bullets: page.productBullets, businessType: page.pageType }), {
       width: 800, height: 600, seedKey: `${brandName}:${page.payment.name}`,
     });
     await Promise.allSettled([storeImage(u, `${page.slug}-product`).then((b) => { if (b) updates.productImageUrl = b; })]);
