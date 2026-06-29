@@ -118,6 +118,23 @@ async function recordPayment(payment: RzpPayment, orderEntity?: { notes?: Record
     status: "paid",
   });
   logger.info({ paymentId: payment.id, slug }, "webhook recorded order");
+
+  // The browser never confirmed (tab closed) — send the receipt + sale alert here.
+  const emailData = {
+    brandName: page.brand?.name ?? slug,
+    primaryColor: page.brand?.primaryColor,
+    productName: page.payment?.name ?? "",
+    amount: payment.amount,
+    currency: payment.currency ?? "INR",
+    paymentId: payment.id,
+    customerEmail: payment.email,
+  };
+  if (payment.email) {
+    const r = buyerReceiptEmail(emailData);
+    void sendEmail({ to: payment.email, subject: r.subject, html: r.html, replyTo: ownerId });
+  }
+  const m = merchantSaleEmail(emailData);
+  void sendEmail({ to: ownerId, subject: m.subject, html: m.html, replyTo: payment.email });
 }
 
 async function recordRefund(refund: RzpRefund): Promise<void> {
@@ -136,4 +153,20 @@ async function recordRefund(refund: RzpRefund): Promise<void> {
     status,
   });
   logger.info({ paymentId: refund.payment_id, refundId: refund.id }, "webhook recorded refund");
+
+  // Notify the buyer. (Skipped if our refund route already set this refundId —
+  // the early-return above prevents a double email for in-app refunds.)
+  if (order.customerEmail) {
+    const e = refundEmail({
+      brandName: order.brandName,
+      productName: order.productName,
+      amount: order.amount,
+      currency: order.currency,
+      paymentId: order.paymentId,
+      customerName: order.customerName,
+      customerEmail: order.customerEmail,
+      refundAmount: refund.amount,
+    });
+    void sendEmail({ to: order.customerEmail, subject: e.subject, html: e.html, replyTo: order.ownerId });
+  }
 }
