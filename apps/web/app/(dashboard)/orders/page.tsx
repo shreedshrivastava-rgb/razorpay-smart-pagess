@@ -1,14 +1,25 @@
 import Link from "next/link";
-import { getOrders } from "@/lib/store/orders";
+import { getOrders, orderStatus } from "@/lib/store/orders";
 import { ownerId } from "@/auth";
 import { formatCurrency } from "@/lib/utils";
+import OrdersTable from "./OrdersTable";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrdersPage() {
   const owner = await ownerId();
   const orders = owner ? await getOrders(owner) : [];
-  const totalPaise = orders.reduce((sum, o) => sum + (o.amount || 0), 0);
+  const currency = orders[0]?.currency || "INR";
+
+  // Net revenue = collected − refunded (free claims contribute 0).
+  const grossPaise = orders.reduce((sum, o) => sum + (o.amount || 0), 0);
+  const refundedPaise = orders.reduce((sum, o) => sum + (o.refundAmount || 0), 0);
+  const netPaise = grossPaise - refundedPaise;
+  const uniqueCustomers = new Set(
+    orders.map((o) => (o.customerEmail || "").trim().toLowerCase()).filter(Boolean)
+  ).size;
+
+  const rows = orders.map((o) => ({ ...o, _status: orderStatus(o) }));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -31,59 +42,47 @@ export default async function OrdersPage() {
       </header>
 
       <main className="container mx-auto px-4 max-w-6xl py-10">
-        <div className="flex items-center justify-between mb-8 gap-4 flex-wrap">
+        <div className="flex items-end justify-between mb-8 gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Order records</h1>
             <p className="text-gray-500 text-sm mt-0.5">
-              {orders.length} order{orders.length !== 1 ? "s" : ""}
-              {orders.length > 0 && <> · {formatCurrency(totalPaise, orders[0].currency)} collected</>}
+              Orders, customers, revenue and refunds across all your pages.
             </p>
           </div>
+          {orders.length > 0 && (
+            <a
+              href="/api/orders/export"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 3v13m0 0l-4-4m4 4l4-4" />
+              </svg>
+              Export CSV
+            </a>
+          )}
         </div>
 
-        {orders.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-400 border-b border-gray-100">
-                    <th className="px-5 py-3 font-semibold">Date</th>
-                    <th className="px-5 py-3 font-semibold">Customer</th>
-                    <th className="px-5 py-3 font-semibold">Page</th>
-                    <th className="px-5 py-3 font-semibold text-right">Amount</th>
-                    <th className="px-5 py-3 font-semibold">Payment ID</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map((o) => (
-                    <tr key={o.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
-                      <td className="px-5 py-3 text-gray-600 whitespace-nowrap">
-                        {new Date(o.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="font-medium text-gray-900">{o.customerName || "—"}</div>
-                        <div className="text-xs text-gray-400">{o.customerEmail}{o.customerPhone ? ` · ${o.customerPhone}` : ""}</div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <Link href={`/p/${o.slug}`} target="_blank" className="text-indigo-600 hover:underline">
-                          {o.brandName || o.slug}
-                        </Link>
-                        {o.productName && <div className="text-xs text-gray-400">{o.productName}</div>}
-                      </td>
-                      <td className="px-5 py-3 text-right font-semibold text-gray-900 tabular-nums whitespace-nowrap">
-                        {formatCurrency(o.amount, o.currency)}
-                      </td>
-                      <td className="px-5 py-3 text-xs text-gray-400 font-mono">{o.paymentId}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {orders.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <StatCard label="Net revenue" value={formatCurrency(netPaise, currency)} hint={refundedPaise > 0 ? `${formatCurrency(refundedPaise, currency)} refunded` : "after refunds"} />
+            <StatCard label="Collected" value={formatCurrency(grossPaise, currency)} hint="gross" />
+            <StatCard label="Orders" value={String(orders.length)} hint={`${orders.filter((o) => orderStatus(o) === "paid").length} paid`} />
+            <StatCard label="Customers" value={String(uniqueCustomers)} hint="unique buyers" />
           </div>
         )}
+
+        {orders.length === 0 ? <EmptyState /> : <OrdersTable orders={rows} />}
       </main>
+    </div>
+  );
+}
+
+function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</div>
+      <div className="text-2xl font-bold text-gray-900 mt-1.5 tabular-nums">{value}</div>
+      {hint && <div className="text-xs text-gray-400 mt-0.5">{hint}</div>}
     </div>
   );
 }
