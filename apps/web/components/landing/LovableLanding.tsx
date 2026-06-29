@@ -8,6 +8,44 @@ import { useEffect, useRef, useState } from "react";
 import type { PageSchema } from "@/lib/schema/page-schema";
 import { formatCurrency } from "@/lib/utils";
 import { LiquidBackground } from "./LiquidBackground";
+import { VoiceButton } from "@/components/chat/VoiceButton";
+import { setPendingUploads, type PendingUpload } from "@/lib/pending-uploads";
+
+// Accepted upload types for the landing composer (mirrors the chat input).
+const LANDING_ACCEPT =
+  "image/jpeg,image/png,image/webp,image/heic,application/pdf,text/csv,text/plain,.csv,.tsv,.txt,.pdf,.xls,.xlsx,.doc,.docx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// Downscale + compress a photo to keep the hand-off payload small.
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX = 900;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round(height * MAX / width); width = MAX; }
+        else { width = Math.round(width * MAX / height); height = MAX; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d")?.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = reject;
+    img.src = objectUrl;
+  });
+}
+
+function readDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,7 +106,9 @@ export function LovableLanding({ user }: { user: LandingUser }) {
   const [tab, setTab] = useState<Tab>("projects");
   const [pages, setPages] = useState<PageSchema[] | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const firstName = user.name?.trim().split(/\s+/)[0] || "there";
   const initial = (firstName[0] || user.email[0] || "U").toUpperCase();
@@ -85,6 +125,35 @@ export function LovableLanding({ user }: { user: LandingUser }) {
   function submitPrompt() {
     const text = prompt.trim();
     router.push(text ? `/chat?prompt=${encodeURIComponent(text)}` : "/chat");
+  }
+
+  // + button: pick photos/files, then start a fresh chat with them already
+  // attached (handed off via the in-memory store, picked up by ChatInterface).
+  async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      const uploads: PendingUpload[] = [];
+      for (const f of files) {
+        try {
+          if (f.type.startsWith("image/")) {
+            uploads.push({ name: f.name, type: "image/jpeg", dataUrl: await compressImage(f) });
+          } else {
+            if (f.size > 12 * 1024 * 1024) continue; // skip oversized docs
+            uploads.push({ name: f.name, type: f.type || "application/octet-stream", dataUrl: await readDataUrl(f) });
+          }
+        } catch { /* skip unreadable file */ }
+      }
+      if (uploads.length > 0) {
+        setPendingUploads(uploads);
+        const text = prompt.trim();
+        router.push(text ? `/chat?prompt=${encodeURIComponent(text)}` : "/chat?upload=1");
+      }
+    } finally {
+      setUploading(false);
+    }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -173,14 +242,31 @@ export function LovableLanding({ user }: { user: LandingUser }) {
                 placeholder="Ask Smart Pages to create a payment page for…"
                 className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[15px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none"
               />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={LANDING_ACCEPT}
+                multiple
+                className="hidden"
+                onChange={handleFiles}
+              />
               <div className="flex items-center justify-between px-2 pb-1">
                 <button
                   type="button"
-                  onClick={submitPrompt}
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                  aria-label="Add context"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                  aria-label="Attach images or files"
+                  title="Attach images or files"
                 >
-                  <Icon path={ICONS.plus} className="h-5 w-5" />
+                  {uploading ? (
+                    <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <Icon path={ICONS.plus} className="h-5 w-5" />
+                  )}
                 </button>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -190,14 +276,10 @@ export function LovableLanding({ user }: { user: LandingUser }) {
                     Build
                     <Icon path={ICONS.chevDown} className="h-3.5 w-3.5" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => router.push("/chat")}
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                    aria-label="Voice input"
-                  >
-                    <Icon path={ICONS.mic} className="h-[18px] w-[18px]" />
-                  </button>
+                  <VoiceButton
+                    onTranscript={(t) => setPrompt((p) => (p ? `${p} ${t}` : t))}
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  />
                   <button
                     type="button"
                     onClick={submitPrompt}

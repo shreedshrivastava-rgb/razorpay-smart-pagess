@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useParams } from "next/navigation";
 import { VoiceButton } from "./VoiceButton";
 import type { ChatContext } from "@/app/api/chat/route";
+import { peekPendingUploads, clearPendingUploads } from "@/lib/pending-uploads";
 import type { PageSchema, WizardInput } from "@/lib/schema/page-schema";
 import { variantChoice } from "@/lib/schema/page-schema";
 import type { StoredChat } from "@/lib/store/pages";
