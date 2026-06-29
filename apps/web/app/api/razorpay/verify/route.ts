@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { getPage, getPageOwnerId } from "@/lib/store/pages";
 import { resolveMerchantAuth } from "@/lib/store/merchants";
-import { saveOrder } from "@/lib/store/orders";
+import { saveOrder, getOrderById } from "@/lib/store/orders";
+import { sendEmail, buyerReceiptEmail, merchantSaleEmail } from "@/lib/email";
 import { logger } from "@/lib/logger";
 
 // HMAC check against a specific key secret (BYO / platform).
@@ -110,6 +111,7 @@ export async function POST(req: NextRequest) {
             : null);
         const amount = (orderAuth ? await fetchOrderAmount(orderId, orderAuth) : null) ?? body.amount ?? 0;
         recordedAmount = amount;
+        const isNewOrder = !(await getOrderById(paymentId));
         await saveOrder({
           id: paymentId,
           orderId,
@@ -125,6 +127,26 @@ export async function POST(req: NextRequest) {
           ownerId,
           createdAt: new Date().toISOString(),
         });
+
+        // Notify only on first record so the webhook + verify don't double-send.
+        if (isNewOrder) {
+          const emailData = {
+            brandName: page.brand?.name ?? body.slug,
+            primaryColor: page.brand?.primaryColor,
+            productName: page.payment?.name ?? "",
+            amount,
+            currency: body.currency ?? "INR",
+            paymentId,
+            customerName: body.customerName,
+            customerEmail: body.customerEmail,
+          };
+          if (body.customerEmail) {
+            const r = buyerReceiptEmail(emailData);
+            void sendEmail({ to: body.customerEmail, subject: r.subject, html: r.html, replyTo: ownerId });
+          }
+          const m = merchantSaleEmail(emailData);
+          void sendEmail({ to: ownerId, subject: m.subject, html: m.html, replyTo: body.customerEmail });
+        }
       }
     }
   } catch (err) {
