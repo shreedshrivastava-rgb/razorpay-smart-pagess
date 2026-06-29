@@ -504,6 +504,7 @@ export function ChatInterface() {
       ...(isCollection && ctx.collectionProducts?.length
         ? {
             collectionProducts: ctx.collectionProducts.map((p) => ({
+              id: p.id,
               name: p.name,
               price: Math.round(p.price * 100),
               maxPrice: p.maxPrice ? Math.round(p.maxPrice * 100) : undefined,

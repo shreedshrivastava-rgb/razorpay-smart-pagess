@@ -49,6 +49,7 @@ export interface ChatContext {
   language?: string;
   // Collection page products (when pageType = "collection")
   collectionProducts?: Array<{
+    id?: string;       // stable id, preserved client-side across regenerations (AI must not invent it)
     name: string;
     price: number;     // rupees — minimum / starting price
     maxPrice?: number; // rupees — maximum price when sizes differ (e.g. 0.5kg ₹200 → 1.5kg ₹300)
