@@ -1116,7 +1116,7 @@ function BrandedProductCard({ brand, payment, pageType }: { brand: Brand; paymen
   const emoji = inferProductEmoji(payment.name, pageType);
   const formattedPrice = formatCurrency(payment.amount, payment.currency);
   const [imgFailed, setImgFailed] = useState(false);
-  const imageUrl = generatedImageUrl(productImagePrompt(payment.name, brand.name, payment.description), {
+  const imageUrl = generatedImageUrl(productImagePrompt(payment.name, { brandName: brand.name, description: payment.description, businessType: pageType }), {
     width: 800, height: 600, seedKey: `${brand.name}:${payment.name}`,
   });
 
