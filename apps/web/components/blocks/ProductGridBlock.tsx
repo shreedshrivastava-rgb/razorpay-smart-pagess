@@ -158,7 +158,21 @@ function ProductCard({
   }
 
   return (
-    <div className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+    <div className="relative bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+      {/* Delete product — owner edit mode only */}
+      {editMode && onDelete && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); if (confirm(`Remove "${displayName}"?`)) onDelete(); }}
+          disabled={busy}
+          title="Remove product"
+          className="absolute top-2.5 left-2.5 z-20 w-8 h-8 rounded-full bg-white/90 text-red-500 shadow-md flex items-center justify-center hover:bg-red-50 disabled:opacity-50"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z" />
+          </svg>
+        </button>
+      )}
       {/* Product image */}
       <div
         className={cn("aspect-[4/3] bg-gray-50 relative overflow-hidden", editMode && "cursor-pointer group")}
