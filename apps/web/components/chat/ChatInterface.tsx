@@ -699,16 +699,20 @@ export function ChatInterface() {
 
       let updatedCtx = json.context;
 
-      // The AI's structured output doesn't echo back image fields, so merge any
-      // images we already had (matched by product name) to avoid losing them.
+      // The AI's structured output doesn't echo back the stable id or image
+      // fields, so re-attach them from the prior context (matched by name, then
+      // by position) — otherwise edits/regenerations lose product ids and images.
       if (json.context.collectionProducts && context.collectionProducts) {
         const prior = context.collectionProducts;
+        const used = new Set<number>();
         updatedCtx = {
           ...json.context,
-          collectionProducts: json.context.collectionProducts.map((p) => {
-            if (p.imageUrl) return p;
-            const m = prior.find((q) => q.name.toLowerCase() === p.name.toLowerCase());
-            return m?.imageUrl ? { ...p, imageUrl: m.imageUrl } : p;
+          collectionProducts: json.context.collectionProducts.map((p, idx) => {
+            let mi = prior.findIndex((q, j) => !used.has(j) && q.name.toLowerCase() === p.name.toLowerCase());
+            if (mi < 0 && prior[idx] && !used.has(idx)) mi = idx;
+            if (mi >= 0) used.add(mi);
+            const m = mi >= 0 ? prior[mi] : undefined;
+            return { ...p, id: p.id ?? m?.id, imageUrl: p.imageUrl ?? m?.imageUrl };
           }),
         };
       }
