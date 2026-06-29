@@ -3,6 +3,7 @@ import { ownerId } from "@/auth";
 import { checkCsrf } from "@/lib/csrf";
 import { checkRateLimit, getRateLimitHeaders } from "@/lib/rate-limiter";
 import { getOrderById, updateOrder, type OrderStatus } from "@/lib/store/orders";
+import { sendEmail, refundEmail } from "@/lib/email";
 import { resolveMerchantAuth } from "@/lib/store/merchants";
 import { logger } from "@/lib/logger";
 
@@ -61,6 +62,23 @@ export async function POST(req: NextRequest) {
       refundedAt: new Date().toISOString(),
       status,
     });
+
+    // Notify the buyer immediately (the webhook's refund handler early-returns on
+    // this same refundId, so there's no duplicate email).
+    if (order.customerEmail) {
+      const e = refundEmail({
+        brandName: order.brandName,
+        productName: order.productName,
+        amount: order.amount,
+        currency: order.currency,
+        paymentId: order.paymentId,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        refundAmount: reqAmount,
+      });
+      void sendEmail({ to: order.customerEmail, subject: e.subject, html: e.html, replyTo: order.ownerId });
+    }
+
     return NextResponse.json({ success: true, refundId: refund.id, refundAmount: newRefunded, status, order: updated });
   } catch (err) {
     logger.error({ err }, "refund request failed");
