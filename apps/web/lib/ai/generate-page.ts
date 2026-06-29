@@ -143,22 +143,27 @@ export async function buildFullPage(input: WizardInput): Promise<PageSchema> {
     status: "published" as const,
   };
 
-  // For collection pages: overwrite AI-generated product prices with the exact merchant values
-  // (AI rounds/estimates; merchant-entered prices are authoritative)
+  // For collection pages the merchant's products are the source of truth. Build
+  // the grid items directly from them (preserving stable ids) so add/edit/delete
+  // and uploaded images survive regeneration — instead of index-matching the AI's
+  // freshly-generated items (which reorders/renames and drops images). The AI's
+  // items are only nice-copy fallback at the same position.
   if (input.pageType === "collection" && input.collectionProducts?.length) {
     const gridSection = page.sections.find((s) => s.type === "product-grid");
     if (gridSection && gridSection.type === "product-grid") {
-      const collectionProducts = input.collectionProducts;
-      gridSection.items = gridSection.items.map((item, i) => {
-        const src = collectionProducts[i];
-        if (!src) return item;
+      const aiItems = gridSection.items;
+      gridSection.items = input.collectionProducts.map((src, i) => {
+        const ai = aiItems[i];
         return {
-          ...item,
+          id: src.id || ai?.id || generateId("prod"),
+          name: src.name,
+          description: src.description || ai?.description || "",
           price: src.price,
+          maxPrice: src.maxPrice,
           currency: input.currency ?? "INR",
-          imageUrl: item.imageUrl || src.imageUrl || "",
-          bullets: item.bullets?.length ? item.bullets : (src.bullets ?? []),
-          badge: item.badge || src.badge || "",
+          imageUrl: src.imageUrl || ai?.imageUrl || "",
+          badge: src.badge || ai?.badge || "",
+          bullets: src.bullets?.length ? src.bullets : (ai?.bullets ?? []),
         };
       });
     }
