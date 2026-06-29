@@ -99,6 +99,7 @@ export async function POST(req: NextRequest) {
   // Only record for a page that actually exists (avoids misattributing junk
   // slugs to the primary owner), and use the authoritative amount from Razorpay
   // rather than the client-supplied value.
+  let recordedAmount = body.amount ?? 0;
   try {
     if (body.slug) {
       const [page, ownerId] = await Promise.all([getPage(body.slug), getPageOwnerId(body.slug)]);
@@ -108,6 +109,7 @@ export async function POST(req: NextRequest) {
             ? `Basic ${Buffer.from(`${process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString("base64")}`
             : null);
         const amount = (orderAuth ? await fetchOrderAmount(orderId, orderAuth) : null) ?? body.amount ?? 0;
+        recordedAmount = amount;
         await saveOrder({
           id: paymentId,
           orderId,
@@ -129,5 +131,8 @@ export async function POST(req: NextRequest) {
     logger.error({ err }, "order save failed");
   }
 
-  return NextResponse.json({ verified: true });
+  return NextResponse.json({
+    verified: true,
+    order: { orderId, paymentId, amount: recordedAmount, currency: body.currency ?? "INR" },
+  });
 }
