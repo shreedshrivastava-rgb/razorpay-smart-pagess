@@ -625,6 +625,7 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [orderInfo, setOrderInfo] = useState<{ paymentId: string; amount: number } | null>(null);
   const [error, setError] = useState("");
 
   const isFree = !payment.amount || payment.amount <= 0;
@@ -768,6 +769,8 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
               }),
             });
             if (!verifyRes.ok) throw new Error("Signature mismatch");
+            const vjson = await verifyRes.json().catch(() => null) as { order?: { paymentId: string; amount: number } } | null;
+            if (vjson?.order) setOrderInfo({ paymentId: vjson.order.paymentId, amount: vjson.order.amount });
             setLoading(false);
             setSuccess(true);
           } catch {
