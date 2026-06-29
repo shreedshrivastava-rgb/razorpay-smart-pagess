@@ -93,6 +93,23 @@ async function processImageFile(file: File): Promise<string> {
   });
 }
 
+// Catalogue / document uploads (parsed into products) vs. photos.
+const DOC_EXT_RE = /\.(pdf|csv|tsv|txt|xls|xlsx|doc|docx)$/i;
+function isDocFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return false;
+  return DOC_EXT_RE.test(file.name)
+    || /pdf|csv|sheet|excel|word|tab-separated|text\/plain/.test(file.type);
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 const GREETING: Message = {
   id: "greeting",
   role: "assistant",
@@ -655,27 +672,60 @@ export function ChatInterface() {
 
   async function sendMessage(text: string) {
     const trimmed = text.trim();
-    if ((!trimmed && pendingPhotoDataUrls.length === 0) || inflightRef.current || generating) return;
+    const attachment = pendingAttachment;
+    if ((!trimmed && pendingPhotoDataUrls.length === 0 && !attachment) || inflightRef.current || generating) return;
     restoredRef.current = true; // prevent API auto-restore from overriding an active conversation
     inflightRef.current = true;
     const mySession = sessionIdRef.current;
     setError("");
     setInput("");
+    setQuickReplies([]);
 
     const photosForThisMessage = [...pendingPhotoDataUrls];
     setPendingPhotoDataUrls([]);
+    setPendingAttachment(null);
 
     setLoading(true);
 
     const userMsg: Message = {
       id: `u-${Date.now()}`,
       role: "user",
-      content: trimmed,
+      content: trimmed || (attachment ? `📎 ${attachment.name}` : ""),
       imageUrl: photosForThisMessage[0] ?? undefined,
       imageUrls: photosForThisMessage.length ? photosForThisMessage : undefined,
     };
     const snapshot = [...messages, userMsg];
     setMessages(snapshot);
+
+    // Parse an attached catalogue file into products before the chat call so the
+    // AI builds on them. Degrades gracefully (note added) when nothing is parsed.
+    let workingContext = context;
+    if (attachment) {
+      setParsingFile(true);
+      try {
+        const pres = await fetch("/api/catalogue/parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl: attachment.dataUrl, fileName: attachment.name }),
+        });
+        const pdata = await pres.json() as { products?: Array<{ name: string; price?: number; description?: string }>; note?: string };
+        if (pdata.products?.length) {
+          const existing = workingContext.collectionProducts ?? [];
+          const seen = new Set(existing.map((p) => p.name.toLowerCase()));
+          const merged = [...existing];
+          for (const p of pdata.products) {
+            if (!seen.has(p.name.toLowerCase())) { merged.push({ name: p.name, price: p.price ?? 0 }); seen.add(p.name.toLowerCase()); }
+          }
+          workingContext = { ...workingContext, pageType: "collection", collectionProducts: merged };
+          setContext(workingContext);
+        }
+        if (pdata.note) addMessage({ role: "assistant", content: pdata.note });
+      } catch {
+        addMessage({ role: "assistant", content: "I couldn't read that file — just tell me the products and prices and I'll add them." });
+      } finally {
+        setParsingFile(false);
+      }
+    }
 
     try {
       const res = await fetch("/api/chat", {
@@ -685,7 +735,7 @@ export function ChatInterface() {
           messages: snapshot
             .filter((m) => m.id !== "greeting" && m.role !== "preview")
             .map((m) => ({ role: m.role, content: m.content })),
-          context,
+          context: workingContext,
           generatedSlug: generatedSlug ?? undefined,
           pendingPhotoUrl: photosForThisMessage[0] ?? undefined,
         }),
