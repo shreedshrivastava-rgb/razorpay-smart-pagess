@@ -1215,8 +1215,8 @@ export function ChatInterface() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingImage || generating}
-              title="Upload photo"
+              disabled={uploadingImage || generating || parsingFile}
+              title="Upload a photo or catalogue (PDF, CSV, Excel)"
               className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all text-white/40 hover:text-indigo-400 hover:bg-white/10 disabled:opacity-40 relative"
             >
               {uploadingImage ? (
