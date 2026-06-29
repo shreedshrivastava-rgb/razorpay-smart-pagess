@@ -12,11 +12,15 @@ export function GeneratedProductBanner({
   brand,
   name,
   description,
+  bullets,
+  seedKey,
   pageType = "product",
 }: {
   brand: { name: string; primaryColor: string; secondaryColor?: string };
   name: string;
   description?: string;
+  bullets?: string[];
+  seedKey?: string;
   pageType?: string;
 }) {
   const primary = brand.primaryColor || "#6366f1";
@@ -24,10 +28,11 @@ export function GeneratedProductBanner({
   const emoji = inferProductEmoji(name, pageType);
   const [imgFailed, setImgFailed] = useState(false);
 
-  const imageUrl = generatedImageUrl(productImagePrompt(name, brand.name, description), {
+  const imageUrl = generatedImageUrl(productImagePrompt(name, { brandName: brand.name, description, bullets }), {
     width: 600,
     height: 450,
-    seedKey: `${brand.name}:${name}`,
+    // Seed by stable product id when provided so a rename keeps the same image.
+    seedKey: seedKey ?? `${brand.name}:${name}`,
   });
 
   return (
