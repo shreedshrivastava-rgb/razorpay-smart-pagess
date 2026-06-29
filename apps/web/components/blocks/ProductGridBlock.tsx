@@ -6,6 +6,7 @@ import { formatCurrency, cn } from "@/lib/utils";
 import { useCart } from "@/components/cart/CartContext";
 import { useEditModeOptional } from "@/components/editor/EditModeContext";
 import { uploadImage } from "@/lib/image-store";
+import { mutateProductGridItems, newProductId } from "@/lib/page-edit";
 import { GeneratedProductBanner } from "./GeneratedProductBanner";
 
 interface ProductGridBlockProps {
@@ -19,6 +20,27 @@ export function ProductGridBlock({ section, brand, razorpayKeyId, sectionIndex }
   const colClass = section.layout === "grid-2"
     ? "grid-cols-1 sm:grid-cols-2"
     : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3";
+
+  const editCtx = useEditModeOptional();
+  const editMode = editCtx?.editMode ?? false;
+  const [busy, setBusy] = useState(false);
+
+  async function addProduct() {
+    setBusy(true);
+    const ok = await mutateProductGridItems(section.id, (items) => [
+      ...items,
+      { id: newProductId(), name: "New product", description: "", price: 0, currency: "INR" },
+    ]);
+    if (ok) window.location.reload();
+    else setBusy(false);
+  }
+
+  async function deleteProduct(id: string) {
+    setBusy(true);
+    const ok = await mutateProductGridItems(section.id, (items) => items.filter((it) => it.id !== id));
+    if (ok) window.location.reload();
+    else setBusy(false);
+  }
 
   return (
     <section className="py-14 bg-gray-50">
@@ -38,8 +60,21 @@ export function ProductGridBlock({ section, brand, razorpayKeyId, sectionIndex }
               razorpayKeyId={razorpayKeyId}
               sectionIndex={sectionIndex}
               itemIndex={itemIndex}
+              busy={busy}
+              onDelete={() => deleteProduct(item.id)}
             />
           ))}
+          {editMode && (
+            <button
+              type="button"
+              onClick={addProduct}
+              disabled={busy}
+              className="flex min-h-[260px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+            >
+              <span className="text-3xl leading-none">+</span>
+              <span className="text-sm font-semibold">{busy ? "Working…" : "Add product"}</span>
+            </button>
+          )}
         </div>
       </div>
     </section>
@@ -51,12 +86,16 @@ function ProductCard({
   brand,
   sectionIndex,
   itemIndex,
+  busy,
+  onDelete,
 }: {
   item: ProductGridItem;
   brand: Brand;
   razorpayKeyId: string;
   sectionIndex?: number;
   itemIndex: number;
+  busy?: boolean;
+  onDelete?: () => void;
 }) {
   const { add, items } = useCart();
   const [flash, setFlash] = useState(false);
