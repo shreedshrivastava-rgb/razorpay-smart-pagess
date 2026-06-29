@@ -12,7 +12,7 @@ interface RazorpayCtor {
 
 const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
 
-export function CartDrawer({ brand, razorpayKeyId, slug }: { brand: Brand; razorpayKeyId: string; slug: string }) {
+export function CartDrawer({ brand, razorpayKeyId, slug, methodConfig }: { brand: Brand; razorpayKeyId: string; slug: string; methodConfig?: Record<string, boolean> }) {
   const { items, remove, updateQty, clear, total, count, isOpen, close } = useCart();
   const [stage, setStage] = useState<"cart" | "checkout">("cart");
   const [name, setName] = useState("");
@@ -166,7 +166,7 @@ export function CartDrawer({ brand, razorpayKeyId, slug }: { brand: Brand; razor
 
           <div className="px-5 py-4 border-t border-gray-100">
             <button
-              onClick={() => handleCheckout({ name, email, phone, items, total, brand, razorpayKeyId, slug, setLoading, setError, onSuccess: () => { clear(); setSuccess(true); } })}
+              onClick={() => handleCheckout({ name, email, phone, items, total, brand, razorpayKeyId, slug, methodConfig, setLoading, setError, onSuccess: () => { clear(); setSuccess(true); } })}
               disabled={loading}
               className="w-full py-3.5 rounded-2xl text-white font-bold text-base transition-all hover:opacity-90 active:scale-95 disabled:opacity-60"
               style={{ backgroundColor: brand.primaryColor }}
@@ -220,11 +220,12 @@ function CheckoutField({
 }
 
 async function handleCheckout({
-  name, email, phone, items, total, brand, razorpayKeyId, slug, setLoading, setError, onSuccess,
+  name, email, phone, items, total, brand, razorpayKeyId, slug, methodConfig, setLoading, setError, onSuccess,
 }: {
   name: string; email: string; phone: string;
   items: CartItem[]; total: number;
   brand: Brand; razorpayKeyId: string; slug: string;
+  methodConfig?: Record<string, boolean>;
   setLoading: (v: boolean) => void;
   setError: (v: string) => void;
   onSuccess: () => void;
@@ -302,6 +303,7 @@ async function handleCheckout({
       image: brand.logo,
       prefill: { name, email, contact: phone },
       theme: { color: brand.primaryColor },
+      ...(methodConfig && Object.keys(methodConfig).length ? { method: methodConfig } : {}),
       handler: async (response: RazorpayResponse) => {
         const verifyRes = await fetch("/api/razorpay/verify", {
           method: "POST",
