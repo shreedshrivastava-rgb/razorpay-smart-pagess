@@ -173,6 +173,9 @@ export function ChatInterface() {
       ? (new URLSearchParams(window.location.search).get("prompt") ?? "")
       : ""
   );
+  // Files picked on the landing composer (+ button), handed off in memory.
+  // Peek (don't clear) here — the seeding effect clears once after mount.
+  const [landingUploads] = useState(() => peekPendingUploads());
   const { stop: stopAudio } = useTTS();
   const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [context, setContext] = useState<ChatContext>({});
@@ -242,8 +245,9 @@ export function ChatInterface() {
   // Restore from sessionStorage; fall back to most recent history entry when opening a fresh tab
   useEffect(() => {
     if (slugParam) return;
-    // ?prompt= means the user is starting a new chat — don't restore a previous session
+    // ?prompt= or landing uploads mean a fresh chat — don't restore a previous session
     if (initialPrompt) return;
+    if (landingUploads.length) return;
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -401,6 +405,22 @@ export function ChatInterface() {
       window.history.replaceState({}, "", window.location.pathname);
       void sendMessage(initialPrompt.trim());
     }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Seed files handed off from the landing composer (+ button) as pending uploads,
+  // so they're attached and ready the moment the chat opens.
+  useEffect(() => {
+    if (!landingUploads.length) return;
+    restoredRef.current = true;
+    const photos = landingUploads.filter((f) => f.type.startsWith("image/")).map((f) => f.dataUrl);
+    const doc = landingUploads.find((f) => !f.type.startsWith("image/"));
+    if (photos.length) setPendingPhotoDataUrls(photos);
+    if (doc) setPendingAttachment({ name: doc.name, dataUrl: doc.dataUrl, type: doc.type });
+    clearPendingUploads();
+    if (typeof window !== "undefined" && window.location.search) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    setTimeout(() => inputRef.current?.focus(), 60);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open an existing page in the chat + preview interface (/chat/<slug>).
