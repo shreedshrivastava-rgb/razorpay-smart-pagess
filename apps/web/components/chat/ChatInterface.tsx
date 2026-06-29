@@ -12,7 +12,7 @@ import type { StoredChat } from "@/lib/store/pages";
 // faithfully (rather than regenerating from an empty context and losing fields).
 function pageToContext(page: PageSchema): ChatContext {
   const grid = page.sections?.find((s) => s.type === "product-grid") as
-    | { items?: Array<{ name: string; price: number; maxPrice?: number; imageUrl?: string }> }
+    | { items?: Array<{ id?: string; name: string; price: number; maxPrice?: number; imageUrl?: string }> }
     | undefined;
   const ctx: ChatContext = {
     brandName: page.brand?.name,
@@ -42,6 +42,7 @@ function pageToContext(page: PageSchema): ChatContext {
   }
   if (page.pageType === "collection" && grid?.items?.length) {
     ctx.collectionProducts = grid.items.map((it) => ({
+      id: it.id,
       name: it.name,
       price: Math.round(it.price) / 100,
       maxPrice: it.maxPrice != null ? Math.round(it.maxPrice) / 100 : undefined,
