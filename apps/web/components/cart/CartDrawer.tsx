@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useCart } from "./CartContext";
 import type { CartItem } from "./CartContext";
 import { formatCurrency } from "@/lib/utils";
-import type { Brand } from "@/lib/schema/page-schema";
+import type { Brand, ThankYouConfig } from "@/lib/schema/page-schema";
+import ThankYouView from "@/components/templates/ThankYouView";
 
 interface RazorpayCtor {
   new (opts: Record<string, unknown>): { open: () => void };

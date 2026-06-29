@@ -366,6 +366,7 @@ export type ProductGridItem = z.infer<typeof ProductGridItemSchema>;
 export type ProductGridSection = z.infer<typeof ProductGridSectionSchema>;
 export type Section = z.infer<typeof SectionSchema>;
 export type Payment = z.infer<typeof PaymentSchema>;
+export type ThankYouConfig = z.infer<typeof ThankYouConfigSchema>;
 export type CouponConfig = z.infer<typeof CouponConfigSchema>;
 export type PageSchema = z.infer<typeof PageSchemaValidator>;
 

@@ -8,6 +8,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { CartProvider, useCart } from "@/components/cart/CartContext";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import ThankYouView from "@/components/templates/ThankYouView";
 import { EditModeProvider, useEditMode } from "@/components/editor/EditModeContext";
 import { EditableSection } from "@/components/editor/EditableSection";
 import { uploadImage } from "@/lib/image-store";
@@ -789,33 +790,16 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
 
   if (success) {
     return (
-      <div className="flex flex-col items-center text-center gap-5 py-10" id="pay">
-        <div
-          className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold"
-          style={{ backgroundColor: `${brand.primaryColor}18`, color: brand.primaryColor }}
-          role="img"
-          aria-label="Order confirmed"
-        >
-          ✓
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">
-            {isFree ? "You’re registered!" : "Payment Successful!"}
-          </h2>
-          <p className="text-gray-500 text-sm mt-1">
-            {isFree
-              ? `Welcome, ${name}! Your spot is confirmed.`
-              : `Thank you, ${name}. You’ll hear from the organiser shortly.`}
-          </p>
-        </div>
-        <span
-          className="inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-full"
-          style={{ backgroundColor: `${brand.primaryColor}12`, color: brand.primaryColor }}
-        >
-          <LockIcon className="w-3 h-3" aria-hidden="true" />
-          {isFree ? "Spot confirmed" : "Payment verified by Razorpay"}
-        </span>
-      </div>
+      <ThankYouView
+        brand={brand}
+        config={payment.thankYouConfig}
+        isFree={isFree}
+        customerName={name}
+        productName={payment.name}
+        amount={orderInfo?.amount ?? effectiveAmount}
+        currency={payment.currency}
+        paymentId={orderInfo?.paymentId}
+      />
     );
   }
 
