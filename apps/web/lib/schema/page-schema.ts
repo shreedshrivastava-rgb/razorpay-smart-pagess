@@ -418,6 +418,7 @@ export interface WizardInput {
 }
 
 export interface CollectionProductInput {
+  id?: string;       // stable id — preserved across regenerations so edits/images don't get lost
   name: string;
   price: number;     // paise — minimum / starting price
   maxPrice?: number; // paise — maximum price when sizes have different prices
