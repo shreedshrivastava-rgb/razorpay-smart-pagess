@@ -268,6 +268,16 @@ export const CouponConfigSchema = z.object({
   discountPercent: z.number().min(0).max(100),
 });
 
+// Customizable post-payment thank-you screen.
+export const ThankYouConfigSchema = z.object({
+  title: z.string().optional(),
+  message: z.string().optional(),
+  showOrderSummary: z.boolean().optional(),
+  socialShare: z.array(z.enum(["whatsapp", "linkedin", "twitter", "facebook"])).optional(),
+  reviewUrl: z.string().optional(),       // Google review / survey link
+  nextSteps: z.object({ text: z.string(), url: z.string().optional() }).optional(),
+});
+
 export const PaymentSchema = z.object({
   razorpayKeyId: z.string().default("rzp_test_placeholder"),
   razorpayMode: z.enum(["test", "live"]).default("test"),
@@ -294,6 +304,7 @@ export const PaymentSchema = z.object({
       wallet: z.boolean().optional(),
     })
     .optional(),
+  thankYouConfig: ThankYouConfigSchema.optional(),
 });
 
 // ─── Full Page Schema ─────────────────────────────────────────────
