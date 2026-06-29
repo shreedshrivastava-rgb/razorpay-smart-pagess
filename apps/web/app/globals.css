@@ -4,6 +4,23 @@
 
 @layer base {
   :root {
+    /* ─── Razorpay Blade brand tokens ───────────────────────────────────
+       Canonical Razorpay design-system values, exposed as CSS variables so
+       the app's chrome (dashboard, chat shell, checkout) can align to the
+       brand without swapping in the @razorpay/blade component library.
+       See BLADE_AUDIT.md for the deviations these replace. */
+    --rzp-blue-50: #eef6ff;
+    --rzp-blue-100: #d9ecff;
+    --rzp-blue-300: #7cbaff;
+    --rzp-blue: #3395ff;        /* primary brand blue (Razorpay) */
+    --rzp-blue-600: #1a73e8;
+    --rzp-blue-700: #1559b8;
+    --rzp-navy: #11103b;        /* ink / headings */
+    --rzp-navy-soft: #1d1d4e;
+    --rzp-cloud: #f7f9fc;       /* page surface */
+    --rzp-line: #e3e8ef;        /* hairline borders */
+    --rzp-radius: 0.75rem;      /* Blade default corner radius */
+
     --background: 0 0% 100%;
     --foreground: 224 71.4% 4.1%;
     --card: 0 0% 100%;
@@ -58,6 +75,23 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
+
+/* Razorpay brand button — primary CTA aligned to the brand blue + Blade radius.
+   Opt-in: add `rzp-btn` to a button to match the design system. */
+.rzp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--rzp-blue);
+  color: #fff;
+  font-weight: 600;
+  border-radius: var(--rzp-radius);
+  padding: 0.625rem 1.25rem;
+  transition: background-color 0.15s ease;
+}
+.rzp-btn:hover { background-color: var(--rzp-blue-600); }
+.rzp-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* Smart gradient text */
 .gradient-text {
