@@ -312,7 +312,7 @@ function CollectionPageInner({
         ))}
       </div>
       <CheckoutFooter brand={brand} />
-      <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} slug={page.slug} />
+      <CartDrawer brand={brand} razorpayKeyId={payment.razorpayKeyId} slug={page.slug} methodConfig={payment.methodConfig} />
     </PageShell>
   );
 }
