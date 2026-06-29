@@ -746,6 +746,9 @@ function InlinePaymentCard({ page, brand }: { page: PageSchema; brand: Brand }) 
         image: brand.logo,
         prefill: { name, email, contact: phone },
         theme: { color: payment.theme?.color || brand.primaryColor },
+        // Only restrict methods if the page explicitly configured them; otherwise
+        // Razorpay shows all (UPI, Cards, Netbanking, Wallets).
+        ...(payment.methodConfig && Object.keys(payment.methodConfig).length ? { method: payment.methodConfig } : {}),
         handler: async (response: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }) => {
           // Server-side signature verification before showing success
           try {
