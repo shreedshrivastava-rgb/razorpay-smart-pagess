@@ -124,8 +124,17 @@ You MUST respond ONLY with valid JSON in this exact format (no markdown, no extr
     "language": "string or null",
     "collectionProducts": [{"name": "string", "price": number_in_rupees_min, "maxPrice": number_in_rupees_max_or_null}] or null
   },
-  "action": "ask" | "generate" | "update"
+  "action": "ask" | "generate" | "update",
+  "quickReplies": ["short option 1", "short option 2"] or null
 }
+
+━━━ QUICK REPLIES (guided onboarding) ━━━
+When you ASK a question that has a small set of natural answers, also return 2-5 SHORT (1-4 word) tappable options in "quickReplies" so the merchant can answer in one tap instead of typing. Use them especially for:
+- Business category → ["Physical products", "Digital products", "Services", "Event tickets", "Something else"]
+- Single product vs many → ["Just one product", "A few products", "A full catalogue"]
+- Brand colours → ["Use Razorpay default", "I'll pick colours", "Match my logo"]
+- Adding a catalogue → ["Upload a file", "Add manually"]
+Keep quickReplies null when the answer is open-ended (e.g. brand name) or when action is "generate"/"update". Never put more than 5. The merchant can still type a custom answer.
 
 ━━━ COLOR INFERENCE (always infer — never leave null) ━━━
 Match the business type to the right emotional palette for Indian consumers:
@@ -428,11 +437,16 @@ export async function POST(req: NextRequest) {
       mergedContext.collectionProducts = mergedContext.collectionProducts.slice(0, MAX_COLLECTION_PRODUCTS);
     }
 
+    const quickReplies = Array.isArray(parsed.quickReplies)
+      ? parsed.quickReplies.filter((q): q is string => typeof q === "string" && q.trim().length > 0).slice(0, 5)
+      : undefined;
+
     return NextResponse.json({
       reply: parsed.reply,
       context: mergedContext,
       action: parsed.action,
       photoMapping: parsed.photoMapping ?? null,
+      quickReplies,
     });
   } catch (err) {
     logger.error({ reqId, err }, "chat API error");
