@@ -187,7 +187,7 @@ function ProductCard({
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         ) : (
-          <GeneratedProductBanner brand={brand} name={displayName} description={displayDesc} pageType="product" />
+          <GeneratedProductBanner brand={brand} name={displayName} description={displayDesc} bullets={item.bullets} seedKey={`prod:${item.id}`} pageType="product" />
         )}
 
         {/* Edit overlay — only visible to page creator in edit mode */}
