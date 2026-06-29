@@ -568,6 +568,8 @@ export function ChatInterface() {
     setGenerating(false);
     setError("");
     setPendingPhotoDataUrls([]);
+    setPendingAttachment(null);
+    setQuickReplies([]);
     setHistoryOpen(false);
     window.history.replaceState({}, "", `/chat/${session.slug}`);
     try {
@@ -746,6 +748,7 @@ export function ChatInterface() {
         context: ChatContext;
         action: "ask" | "generate" | "update";
         photoMapping?: string | null;
+        quickReplies?: string[];
       };
 
       if (sessionIdRef.current !== mySession) return;
@@ -755,8 +758,8 @@ export function ChatInterface() {
       // The AI's structured output doesn't echo back the stable id or image
       // fields, so re-attach them from the prior context (matched by name, then
       // by position) — otherwise edits/regenerations lose product ids and images.
-      if (json.context.collectionProducts && context.collectionProducts) {
-        const prior = context.collectionProducts;
+      if (json.context.collectionProducts && workingContext.collectionProducts) {
+        const prior = workingContext.collectionProducts;
         const used = new Set<number>();
         updatedCtx = {
           ...json.context,
@@ -769,12 +772,12 @@ export function ChatInterface() {
           }),
         };
       }
-      if (!updatedCtx.productImageUrl && context.productImageUrl) {
-        updatedCtx = { ...updatedCtx, productImageUrl: context.productImageUrl, productImages: context.productImages };
+      if (!updatedCtx.productImageUrl && workingContext.productImageUrl) {
+        updatedCtx = { ...updatedCtx, productImageUrl: workingContext.productImageUrl, productImages: workingContext.productImages };
       }
 
       if (photosForThisMessage.length > 0) {
-        const products = updatedCtx.collectionProducts ?? context.collectionProducts ?? [];
+        const products = updatedCtx.collectionProducts ?? workingContext.collectionProducts ?? [];
         const isCollectionCtx = updatedCtx.pageType === "collection" && products.length > 0;
 
         if (isCollectionCtx && json.photoMapping && photosForThisMessage.length === 1) {
@@ -811,6 +814,7 @@ export function ChatInterface() {
 
       setContext(updatedCtx);
       addMessage({ role: "assistant", content: json.reply });
+      setQuickReplies(json.action === "ask" && Array.isArray(json.quickReplies) ? json.quickReplies : []);
 
       const stillNeedsPhotos = updatedCtx.pageType === "collection"
         && (updatedCtx.collectionProducts?.length ?? 0) > 0
@@ -982,7 +986,7 @@ export function ChatInterface() {
 
   const isCollection = context.pageType === "collection" && (context.collectionProducts?.length ?? 0) > 0;
   const collectionPhotoCount = context.collectionProducts?.filter((p) => p.imageUrl).length ?? 0;
-  const canSend = (input.trim().length > 0 || pendingPhotoDataUrls.length > 0) && !loading && !generating;
+  const canSend = (input.trim().length > 0 || pendingPhotoDataUrls.length > 0 || !!pendingAttachment) && !loading && !generating && !parsingFile;
 
   function handleNewChat() {
     stopAudio();
@@ -1001,6 +1005,8 @@ export function ChatInterface() {
     setPublishModalOpen(false);
     setError("");
     setPendingPhotoDataUrls([]);
+    setPendingAttachment(null);
+    setQuickReplies([]);
     loadedSlugRef.current = null;
     try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* unavailable */ }
     restoredRef.current = false;
@@ -1116,15 +1122,55 @@ export function ChatInterface() {
           <ContextPills context={context} collectionPhotoCount={collectionPhotoCount} />
         )}
 
-        {/* Hidden file input */}
+        {/* Hidden file input — photos plus catalogue documents (PDF/CSV/Excel/Word/text) */}
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic"
+          accept="image/jpeg,image/png,image/webp,image/heic,application/pdf,text/csv,text/plain,.csv,.tsv,.txt,.pdf,.xls,.xlsx,.doc,.docx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           multiple
           className="hidden"
           onChange={handleImageSelect}
         />
+
+        {/* Quick-reply chips (guided onboarding) */}
+        {quickReplies.length > 0 && !loading && !generating && (
+          <div className="px-4 pt-3 flex flex-wrap gap-2">
+            {quickReplies.map((q, i) => (
+              <button
+                key={i}
+                onClick={() => void sendMessage(q)}
+                className="px-3.5 py-1.5 rounded-full text-xs font-semibold text-indigo-200 bg-indigo-500/15 border border-indigo-400/30 hover:bg-indigo-500/25 transition-colors"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Pending attachment chip (catalogue / document) */}
+        {pendingAttachment && (
+          <div className="px-4 pt-3 pb-1 flex items-center gap-3 bg-white/5 border-t border-white/10">
+            <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-indigo-300 mb-0.5 truncate">{pendingAttachment.name}</p>
+              <p className="text-xs text-white/40 leading-snug">
+                {parsingFile ? "Reading your catalogue…" : "Catalogue ready — hit send and I'll add the products."}
+              </p>
+            </div>
+            <button
+              onClick={() => setPendingAttachment(null)}
+              disabled={parsingFile}
+              className="w-7 h-7 rounded-full bg-white/10 text-white/40 hover:text-red-400 hover:bg-red-900/30 flex items-center justify-center transition-colors shrink-0 text-sm font-bold disabled:opacity-40"
+              title="Remove attachment"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Pending photo preview strip */}
         {pendingPhotoDataUrls.length > 0 && (
