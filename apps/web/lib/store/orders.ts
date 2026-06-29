@@ -112,3 +112,23 @@ export async function getOrders(ownerId: string): Promise<Order[]> {
     .filter((o) => o.ownerId === ownerId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
+
+export async function getOrderById(id: string): Promise<Order | null> {
+  noStore();
+  if (blobAvailable()) {
+    const { get } = await import("@vercel/blob");
+    const res = await get(`orders/${id}.json`, { access: "private", useCache: false });
+    if (!res?.stream) return null;
+    return JSON.parse(await new Response(res.stream).text()) as Order;
+  }
+  return (await readFileOrders())[id] ?? null;
+}
+
+// Merge a partial update onto an order (used by refunds). Returns the updated order.
+export async function updateOrder(id: string, patch: Partial<Order>): Promise<Order | null> {
+  const existing = await getOrderById(id);
+  if (!existing) return null;
+  const updated = { ...existing, ...patch };
+  await saveOrder(updated);
+  return updated;
+}
