@@ -799,6 +799,21 @@ export function ChatInterface() {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
     e.target.value = "";
+
+    // A document (catalogue / PDF) is handled separately from photos.
+    const doc = files.find((f) => isDocFile(f));
+    if (doc) {
+      if (doc.size > 12 * 1024 * 1024) { setError(`"${doc.name}" is too large (max 12 MB).`); return; }
+      try {
+        const dataUrl = await fileToDataUrl(doc);
+        setPendingAttachment({ name: doc.name, dataUrl, type: doc.type || "application/octet-stream" });
+        setTimeout(() => inputRef.current?.focus(), 50);
+      } catch {
+        setError(`Couldn't read "${doc.name}".`);
+      }
+      return;
+    }
+
     const MAX_FILE_BYTES = 20 * 1024 * 1024;
     const MAX_DATA_URL_BYTES = 2_000_000;
     setUploadingImage(true);
