@@ -127,6 +127,12 @@ export async function buildFullPage(input: WizardInput): Promise<PageSchema> {
       },
       couponConfig: input.couponConfig,
       customFields: input.customFields,
+      // Sensible default post-payment screen — order summary + a WhatsApp share.
+      // Fully overridable per page (title/message/reviewUrl/nextSteps/socialShare).
+      thankYouConfig: {
+        showOrderSummary: true,
+        socialShare: ["whatsapp"] as const,
+      },
     },
     seo: generated.seo || {
       title: `${input.productName} — ${brandName}`,
