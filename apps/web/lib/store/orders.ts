@@ -3,6 +3,8 @@ import path from "path";
 import { unstable_noStore as noStore } from "next/cache";
 import { logger } from "@/lib/logger";
 
+export type OrderStatus = "paid" | "refunded" | "partially_refunded" | "free";
+
 // A verified, captured payment for one of the owner's pages.
 export interface Order {
   id: string;            // razorpay payment id (unique)
@@ -18,6 +20,18 @@ export interface Order {
   customerPhone?: string;
   ownerId: string;       // seller (page owner) email
   createdAt: string;
+  // Refund tracking (set by /api/razorpay/refund)
+  status?: OrderStatus;
+  refundId?: string;
+  refundAmount?: number; // paise refunded so far
+  refundedAt?: string;
+}
+
+// Effective status when not explicitly stored (older orders / free claims).
+export function orderStatus(o: Order): OrderStatus {
+  if (o.status) return o.status;
+  if (!o.paymentId) return "free";
+  return "paid";
 }
 
 function blobAvailable(): boolean {
