@@ -16,6 +16,18 @@ const config: Config = {
     },
     extend: {
       colors: {
+        // Razorpay brand scale (Blade-aligned). Use `bg-razorpay`, `text-razorpay-navy`, etc.
+        razorpay: {
+          50: "var(--rzp-blue-50)",
+          100: "var(--rzp-blue-100)",
+          300: "var(--rzp-blue-300)",
+          DEFAULT: "var(--rzp-blue)",
+          600: "var(--rzp-blue-600)",
+          700: "var(--rzp-blue-700)",
+          navy: "var(--rzp-navy)",
+          cloud: "var(--rzp-cloud)",
+          line: "var(--rzp-line)",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
