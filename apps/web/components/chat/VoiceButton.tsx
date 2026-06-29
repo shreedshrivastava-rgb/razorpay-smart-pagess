@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 interface VoiceButtonProps {
   onTranscript: (text: string) => void;
   disabled?: boolean;
+  className?: string; // override the idle/base button styling (e.g. on the landing composer)
 }
 
 // Minimal interface — SpeechRecognition is absent from older TS DOM typings
@@ -29,7 +30,7 @@ const SR: (new () => ISpeechRecognition) | undefined =
     ? ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
     : undefined;
 
-export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
+export function VoiceButton({ onTranscript, disabled, className }: VoiceButtonProps) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -182,15 +183,16 @@ export function VoiceButton({ onTranscript, disabled }: VoiceButtonProps) {
       aria-label={label}
       title={label}
       className={[
-        "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
+        className ?? "w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-gray-100 text-gray-500 hover:bg-indigo-100 hover:text-indigo-600",
         "transition-colors transition-transform duration-150",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500",
         "disabled:opacity-40 disabled:cursor-not-allowed",
+        // State colours always win over the idle styling.
         listening
           ? "bg-red-500 text-white shadow-md shadow-red-200"
           : processing
           ? "bg-indigo-100 text-indigo-400"
-          : "bg-gray-100 text-gray-500 hover:bg-indigo-100 hover:text-indigo-600",
+          : "",
       ].join(" ")}
       style={{ touchAction: "manipulation" }}
     >
