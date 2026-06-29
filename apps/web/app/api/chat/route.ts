@@ -62,6 +62,7 @@ interface ChatResponse {
   context: ChatContext;
   action: "ask" | "generate" | "update";
   photoMapping?: string | null; // exact product name the pending photo belongs to
+  quickReplies?: string[];      // 2-5 tappable suggested answers for guided onboarding
 }
 
 // ─── Azure config ─────────────────────────────────────────────────────────────
