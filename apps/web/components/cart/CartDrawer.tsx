@@ -13,7 +13,7 @@ interface RazorpayCtor {
 
 const EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
 
-export function CartDrawer({ brand, razorpayKeyId, slug, methodConfig }: { brand: Brand; razorpayKeyId: string; slug: string; methodConfig?: Record<string, boolean> }) {
+export function CartDrawer({ brand, razorpayKeyId, slug, methodConfig, thankYouConfig }: { brand: Brand; razorpayKeyId: string; slug: string; methodConfig?: Record<string, boolean>; thankYouConfig?: ThankYouConfig }) {
   const { items, remove, updateQty, clear, total, count, isOpen, close } = useCart();
   const [stage, setStage] = useState<"cart" | "checkout">("cart");
   const [name, setName] = useState("");
@@ -22,6 +22,7 @@ export function CartDrawer({ brand, razorpayKeyId, slug, methodConfig }: { brand
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [orderInfo, setOrderInfo] = useState<{ paymentId: string; amount: number } | null>(null);
   const firstRef = useRef<HTMLInputElement>(null);
 
   // Close on Escape
@@ -40,13 +41,20 @@ export function CartDrawer({ brand, razorpayKeyId, slug, methodConfig }: { brand
   if (success) {
     return isOpen ? (
       <Overlay onClose={close}>
-        <div className="flex flex-col items-center justify-center h-full gap-5 px-8 text-center">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl" style={{ backgroundColor: `${brand.primaryColor}20` }}>✓</div>
-          <h2 className="text-xl font-bold text-gray-900">Order placed!</h2>
-          <p className="text-gray-500 text-sm">You'll receive a confirmation on {email}.</p>
+        <div className="flex flex-col h-full overflow-y-auto px-6 justify-center">
+          <ThankYouView
+            brand={brand}
+            config={thankYouConfig}
+            isFree={(orderInfo?.amount ?? 0) === 0}
+            customerName={name}
+            productName="Your order"
+            amount={orderInfo?.amount ?? 0}
+            currency={items[0]?.currency ?? "INR"}
+            paymentId={orderInfo?.paymentId}
+          />
           <button
-            onClick={() => { close(); setSuccess(false); setStage("cart"); setName(""); setEmail(""); setPhone(""); }}
-            className="px-6 py-2.5 rounded-full text-white text-sm font-bold"
+            onClick={() => { close(); setSuccess(false); setOrderInfo(null); setStage("cart"); setName(""); setEmail(""); setPhone(""); }}
+            className="mx-auto mb-6 px-6 py-2.5 rounded-full text-white text-sm font-bold"
             style={{ backgroundColor: brand.primaryColor }}
           >
             Done
@@ -167,7 +175,7 @@ export function CartDrawer({ brand, razorpayKeyId, slug, methodConfig }: { brand
 
           <div className="px-5 py-4 border-t border-gray-100">
             <button
-              onClick={() => handleCheckout({ name, email, phone, items, total, brand, razorpayKeyId, slug, methodConfig, setLoading, setError, onSuccess: () => { clear(); setSuccess(true); } })}
+              onClick={() => handleCheckout({ name, email, phone, items, total, brand, razorpayKeyId, slug, methodConfig, setLoading, setError, onSuccess: (order) => { clear(); setOrderInfo(order ?? null); setSuccess(true); } })}
               disabled={loading}
               className="w-full py-3.5 rounded-2xl text-white font-bold text-base transition-all hover:opacity-90 active:scale-95 disabled:opacity-60"
               style={{ backgroundColor: brand.primaryColor }}
@@ -229,7 +237,7 @@ async function handleCheckout({
   methodConfig?: Record<string, boolean>;
   setLoading: (v: boolean) => void;
   setError: (v: string) => void;
-  onSuccess: () => void;
+  onSuccess: (order?: { paymentId: string; amount: number }) => void;
 }) {
   if (!name.trim()) { setError("Please enter your name."); return; }
   if (!email.trim() || !EMAIL_RE.test(email.trim())) { setError("Please enter a valid email."); return; }
@@ -322,8 +330,9 @@ async function handleCheckout({
           }),
         });
         if (!verifyRes.ok) { setLoading(false); setError("Payment verification failed. Contact support."); return; }
+        const vjson = await verifyRes.json().catch(() => null) as { order?: { paymentId: string; amount: number } } | null;
         setLoading(false);
-        onSuccess();
+        onSuccess(vjson?.order ?? { paymentId: response.razorpay_payment_id, amount: total });
       },
       modal: { ondismiss: () => setLoading(false) },
     }).open();
