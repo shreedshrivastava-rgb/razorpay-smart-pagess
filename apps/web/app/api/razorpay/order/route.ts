@@ -94,7 +94,9 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
       Authorization: authHeader,
     },
-    body: JSON.stringify({ amount, currency, receipt }),
+    // notes.slug lets the webhook attribute a payment back to its page/owner
+    // even when the browser never calls /verify (e.g. buyer closed the tab).
+    body: JSON.stringify({ amount, currency, receipt, notes: { slug, isCart: isCart ? "1" : "0" } }),
   });
 
   if (!rzpRes.ok) {
