@@ -166,6 +166,9 @@ export function ChatInterface() {
   const [error, setError] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [pendingPhotoDataUrls, setPendingPhotoDataUrls] = useState<string[]>([]);
+  const [pendingAttachment, setPendingAttachment] = useState<{ name: string; dataUrl: string; type: string } | null>(null);
+  const [parsingFile, setParsingFile] = useState(false);
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [previewReady, setPreviewReady] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
